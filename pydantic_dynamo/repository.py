@@ -101,7 +101,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         }
 
     def put(self, content: PartitionedContent[ObjT]) -> None:
-        log_context = {
+        log_context: Dict[str, Any] = {
             "partition_id": content.partition_ids,
             "content_id": content.content_ids,
             **self.context,
@@ -144,7 +144,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
             self._PARTITION_KEY: self._partition_id(partition_id),
             self._SORT_KEY: self._content_id(content_id),
         }
-        build_kwargs = {
+        build_kwargs: Dict[str, Any] = {
             "command": command,
         }
         if require_exists:
