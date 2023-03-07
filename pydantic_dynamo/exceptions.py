@@ -1,0 +1,2 @@
+class RequestObjectStateError(Exception):
+    pass

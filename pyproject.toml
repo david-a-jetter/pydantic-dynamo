@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "pydantic-dynamo"
+version = "0.1.0"
+description = ""
+authors = ["David Jetter <davidajetter@gmail.com>"]
+readme = "README.md"
+packages = [{include = "pydantic_dynamo"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+boto3 = "^1.26.85"
+pydantic = "^1.10.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.2.2"
+black = "^23.1.0"
+factory-boy = "^3.2.1"
+faker = "^17.6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
