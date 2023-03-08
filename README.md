@@ -205,9 +205,8 @@ returning `None` if no item is found.
 This example would retrieve just the first actor item.
 ```python
 from typing import Optional
-from pydantic_dynamo.models import ObjT
 
-item: Optional[ObjT] = repo.get(partition_id=None, content_id=[id1])
+item: Optional[FilmActor] = repo.get(partition_id=None, content_id=[id1])
 ```
 
 #### Get Multiple Items
@@ -219,9 +218,8 @@ items that you want to retrieve, and then associate the two in a subsequent mapp
 This example would retrieve both actor items in a single network request.
 ```python
 from typing import List
-from pydantic_dynamo.models import ObjT
 
-items: List[ObjT] = repo.get_batch([(None, [id1]), (None, [id2])])
+items: List[FilmActor] = repo.get_batch([(None, [id1]), (None, [id2])])
 
 ```
 
@@ -261,9 +259,8 @@ This function supports filter items with a `begins_with` filter on their content
 This example would retrieve all actor items.
 ```python
 from typing import Iterator
-from pydantic_dynamo.models import ObjT
 
-items: Iterator[ObjT] = repo.list(
+items: Iterator[FilmActor] = repo.list(
     partition_id=None,
     content_prefix=None,
     sort_ascending=True, # default order by sort key value
@@ -283,9 +280,8 @@ value at the end of a content ID, and you can retrieve all values in a given par
 between two specified datetimes.
 ```python
 from typing import Iterator
-from pydantic_dynamo.models import ObjT
 
-items: Iterator[ObjT] = repo.list_between(
+items: Iterator[FilmActor] = repo.list_between(
     partition_id=None,
     content_start=None,
     content_end=None,
