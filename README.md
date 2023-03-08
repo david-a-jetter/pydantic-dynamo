@@ -148,7 +148,7 @@ from pydantic_dynamo.models import PartitionedContent
 from uuid import uuid4
 
 id1 = str(uuid4())
-actor1 = FilmActor(id=id1, name="Michael Madsen")
+actor1 = FilmActor(id=id1, name="Daniel Day-Lewis")
 id2 = str(uuid4())
 actor2 = FilmActor(id=id2, name="Steve Buscemi")
 
