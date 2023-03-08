@@ -36,3 +36,19 @@ def task_test():
         ],
         "verbosity": 2,
     }
+
+
+def task_build():
+    return {
+        "actions": [CmdAction("poetry build")],
+        "task_dep": ["test"],
+        "verbosity": 2,
+    }
+
+
+def task_publish():
+    return {
+        "actions": [CmdAction("poetry publish")],
+        "task_dep": ["build"],
+        "verbosity": 2,
+    }
