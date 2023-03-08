@@ -202,7 +202,7 @@ repo.update(
 Finally, something simple to document. This gets a single item by its partition and content IDs,
 returning `None` if no item is found.
 
-This example would retrieve just the first actor items.
+This example would retrieve just the first actor item.
 ```python
 from typing import Optional
 from pydantic_dynamo.models import ObjT
