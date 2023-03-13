@@ -2,6 +2,10 @@
 A Python repository over DynamoDB leveraging the excellent 
 [Pydantic](https://docs.pydantic.dev/) library to model records.
 
+## Contributing
+
+TODO
+
 ## Installation
 Install from PyPI `pip install pydantic-dynamo`
 
@@ -34,7 +38,7 @@ The following IAM permissions are required:
 
 ### Modeling
 Create a Pydantic model specifically for storage. This should generally not be shared
-in API contracts or other external interfaces to adhere to single-responsibility principal.
+in API contracts or other external interfaces to adhere to single-responsibility principle.
 
 ```python
 from pydantic import BaseModel
