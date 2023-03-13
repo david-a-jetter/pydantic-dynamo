@@ -2,9 +2,11 @@
 A Python repository over DynamoDB leveraging the excellent 
 [Pydantic](https://docs.pydantic.dev/) library to model records.
 
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 ## Contributing
 
-TODO
+Please see [the contributing guide](./contributing.md).
 
 ## Installation
 Install from PyPI `pip install pydantic-dynamo`
