@@ -49,9 +49,6 @@ def _internal_timestamp() -> Dict[str, str]:
 
 
 class DynamoRepository(AbstractRepository[ObjT]):
-    _PARTITION_KEY = "_table_item_id"
-    _SORT_KEY = "_table_content_id"
-
     @classmethod
     def build(
         cls,
@@ -69,17 +66,22 @@ class DynamoRepository(AbstractRepository[ObjT]):
             partition_name=partition_name,
             content_type=content_type,
             table_name=table_name,
+            partition_key="_table_item_id",
+            sort_key="_table_content_id",
             table=table,
             resource=resource,
         )
 
     def __init__(
         self,
+        *,
         item_class: Type[ObjT],
         partition_prefix: str,
         partition_name: str,
         content_type: str,
         table_name: str,
+        partition_key: str,
+        sort_key: str,
         table,
         resource,
     ):
@@ -89,6 +91,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
         self._partition_name = partition_name
         self._content_type = content_type
         self._table_name = table_name
+        self._partition_key = partition_key
+        self._sort_key = sort_key
         self._table = table
         self._resource = resource
 
@@ -124,8 +128,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
         item_dict[INTERNAL_OBJECT_VERSION] = 1
         item_dict.update(**_internal_timestamp())
         put_item: Dict[str, Union[str, int]] = {
-            self._PARTITION_KEY: self._partition_id(content.partition_ids),
-            self._SORT_KEY: self._content_id(content.content_ids),
+            self._partition_key: self._partition_id(content.partition_ids),
+            self._sort_key: self._content_id(content.content_ids),
             **item_dict,
         }
         if expiry := content.expiry:
@@ -141,8 +145,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
     ) -> None:
         _validate_command_for_schema(self._item_schema, command)
         key = {
-            self._PARTITION_KEY: self._partition_id(partition_id),
-            self._SORT_KEY: self._content_id(content_id),
+            self._partition_key: self._partition_id(partition_id),
+            self._sort_key: self._content_id(content_id),
         }
         build_kwargs: Dict[str, Any] = {
             "command": command,
@@ -184,8 +188,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
         logger.info("Getting item from table by key", extra=log_context)
         response = self._table.get_item(
             Key={
-                self._PARTITION_KEY: self._partition_id(partition_id),
-                self._SORT_KEY: self._content_id(content_id),
+                self._partition_key: self._partition_id(partition_id),
+                self._sort_key: self._content_id(content_id),
             }
         )
         db_item = response.get("Item")
@@ -214,8 +218,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
             )
             batch_keys = [
                 {
-                    self._PARTITION_KEY: self._partition_id(partition_id),
-                    self._SORT_KEY: self._content_id(content_id),
+                    self._partition_key: self._partition_id(partition_id),
+                    self._sort_key: self._content_id(content_id),
                 }
                 for partition_id, content_id in request_id_batch
             ]
@@ -253,8 +257,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
         if content_prefix is None:
             content_prefix = EMPTY_LIST
 
-        condition = Key(self._PARTITION_KEY).eq(self._partition_id(partition_id)) & Key(
-            self._SORT_KEY
+        condition = Key(self._partition_key).eq(self._partition_id(partition_id)) & Key(
+            self._sort_key
         ).begins_with(self._content_id(content_prefix))
         logger.info("Starting query for content with prefix query")
         items = self._query_all_data(condition, sort_ascending, limit, filters)
@@ -292,7 +296,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
             partition_id = self._partition_id(partition_id)
             sort_start = self._content_id(content_start)
             sort_end = self._content_id(content_end)
-            condition = Key(self._PARTITION_KEY).eq(partition_id) & Key(self._SORT_KEY).between(
+            condition = Key(self._partition_key).eq(partition_id) & Key(self._sort_key).between(
                 low_value=sort_start, high_value=sort_end
             )
             logger.info(
@@ -322,8 +326,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
             "content_prefix": content_prefix,
             **self.context,
         }
-        condition = Key(self._PARTITION_KEY).eq(self._partition_id(partition_id)) & Key(
-            self._SORT_KEY
+        condition = Key(self._partition_key).eq(self._partition_id(partition_id)) & Key(
+            self._sort_key
         ).begins_with(self._content_id(content_prefix))
         logger.info("Starting query for content to delete with prefix query", extra=log_context)
         items = self._query_all_data(condition)
@@ -331,8 +335,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
             for item in items:
                 writer.delete_item(
                     Key={
-                        self._PARTITION_KEY: item[self._PARTITION_KEY],
-                        self._SORT_KEY: item[self._SORT_KEY],
+                        self._partition_key: item[self._partition_key],
+                        self._sort_key: item[self._sort_key],
                     }
                 )
         logger.info("Finished deleting content from prefix query", extra=log_context)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydantic-dynamo"
-version = "0.1.4"
+version = "0.1.5"
 description = ""
 authors = ["David Jetter <davidajetter@gmail.com>"]
 readme = "README.md"
@@ -9,8 +9,9 @@ homepage = "https://github.com/david-a-jetter/pydantic-dynamo"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-boto3 = "^1.26.85"
+boto3 = "^1.20.32"
 pydantic = "^1.10.5"
+botocore = "^1.23.32"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.2"
