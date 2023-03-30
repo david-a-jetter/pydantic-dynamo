@@ -21,11 +21,11 @@ and retrieve objects of different types in one connection. For most use cases ex
 the most complex examples, access patterns can be implemented to utilize the `list`/`list_between`
 and `get_batch` functions, documented below, to prevent N+1 queries.
 
+
+### Table Creation
+
 This package assumes the specified table already exists and the application it is
 running from has sufficient access to the table.
-
-Currently, the package requires the table be created with a partition key named 
-`_table_item_id` and a sort key named `_table_content_id`.
 
 The following IAM permissions are required:
 
@@ -53,6 +53,19 @@ class FilmActor(BaseModel):
     
 ```
 
+#### Reserved Attribute Names
+This package implicitly uses the following attributes, and therefore they should not be used in any
+object model classes.
+
+| Attribute            | Usage                                                                     |
+|----------------------|---------------------------------------------------------------------------|
+| `_table_item_id`     | Default Partition Key name, can be overridden in repository instantiation |
+| `_table_content_id`  | Default Sort Key name, can be overridden in repository instantiation |
+| `_timestamp`         | Automatic ISO-formatted timestamp for when record was created or updated |
+| `_object_version`    | Internal object versioning integer, eventually to be used to enforce an object versioning strategy |
+| `_ttl`               | Optionally used to store the DynamoDB TTL expiry value
+
+
 ### Instantiation
 The repository configuration will dictate the prefix values used for the partition and sort
 key attributes. Once data is saved, these values cannot be changed without losing
@@ -79,7 +92,10 @@ a more complicated problem, which is outside the scope of this library.
 
 There are two ways to instantiate a repository instance:
 
-Through the `build` method that will generate the boto3 session and table objects:
+Through the `build` method that will generate the boto3 session and table objects.
+
+This method assumes the table is created with a partition key named 
+`_table_item_id` and a sort key named `_table_content_id`.
 
 ```python
 from pydantic_dynamo.repository import DynamoRepository
@@ -92,7 +108,7 @@ repo = DynamoRepository[FilmActor].build(
 )
 ```
 
-Or directly to the `__init__` if you want control over how the boto3 objects are created:
+Or directly to the `__init__` if you want more direct control, including how the boto3 objects are created:
 
 ```python
 from pydantic_dynamo.repository import DynamoRepository
@@ -106,6 +122,8 @@ repo = DynamoRepository[FilmActor](
     partition_prefix="content",
     partition_name="movies",
     content_type="character",
+    partition_key="_table_item_id",
+    sort_key="_table_content_id",
     table=table,
     resource=resource
 )
@@ -235,9 +253,10 @@ to filter on content ID values, change sort order, limit the quantity of items.
 
 NB: These returns an `Iterator` type, which will not execute any query until it begins iteration.
 
+##### Filtering
+
 You may also pass an optional `FilterCommand` to filter on non-key attributes. All fields
 on this object are optional, and are applied utilizing `and` logic.
-
 
 ```python
 from pydantic_dynamo.models import FilterCommand
@@ -259,41 +278,102 @@ filter3 = FilterCommand(
 
 ```
 
+These operations are more interesting with a more complex data model, so let's pretend there might be 
+more than one opinion on a given actor, so we'll store many reviews instead of just my own.
+
+Let's define a review model that can be related to an actor:
+```python
+from pydantic import BaseModel
+from datetime import datetime
+
+class ActorReview(BaseModel):
+    id: str
+    actor_id: str
+    created: datetime
+    review: str
+```
+
+and then pretend we save a few of them:
+
+```python
+from datetime import datetime, timezone
+from uuid import uuid4
+
+now = datetime.now(tz=timezone.utc)
+
+repo.put_batch(
+    (
+        PartitionedContent[ActorReview](
+            partition_ids=[actor1.id],
+            content_ids=[now.isoformat()],
+            item=ActorReview(
+                id=str(uuid4()),
+                actor_id=actor1.id,
+                created=now,
+                review="I really thought he was the hero of this movie"
+            )
+        ),
+        PartitionedContent[ActorReview](
+            partition_ids=[actor1.id],
+            content_ids=[now.isoformat()],
+            item=ActorReview(
+                id=str(uuid4()),
+                actor_id=actor1.id,
+                created=now,
+                review="He really embodies the New York state of mind"
+            )
+        )
+    )
+)
+```
+
 ##### List
 This function supports filter items with a `begins_with` filter on their content IDs.
 
-This example would retrieve all actor items.
+This example would retrieve all review items for `actor1` that we previously saved.
 ```python
 from typing import Iterator
 
-items: Iterator[FilmActor] = repo.list(
-    partition_id=None,
+items: Iterator[ActorReview] = repo.list(
+    partition_id=[actor1.id],
     content_prefix=None,
     sort_ascending=True, # default order by sort key value
-    limit=None,
-    filters=None
+    limit=None, # integer to cap the total number of returned items
+    filters=None # optional FilterCommand input
+)
+```
+
+This example would retrieve all of the reviews created on a given year, because ISO-formatted datetime
+values are lexicographically sortable.
+```python
+from typing import Iterator
+
+items: Iterator[ActorReview] = repo.list(
+    partition_id=[actor1.id],
+    content_prefix=["2023"],
+    sort_ascending=True, # default order by sort key value
+    limit=None, # integer to cap the total number of returned items
+    filters=None # optional FilterCommand input
 )
 ```
 
 ##### List Between
 This function supports filter items with a `between` filter on their content IDs.
 
-NB: If `content_start == content_end` this will revert to calling `list` using `begins_with`.
+NB: If `content_start == content_end` this will revert to calling `list` using `begins_with`. This prevents
+unexpected behavior of returning no records due to how Dynamo's Query API handles `between` conditions.
 
-This example would retrieve all actor items. It's a lame example and should be updated
-with something more interesting. A common use case is to include an ISO-formatted datetime
-value at the end of a content ID, and you can retrieve all values in a given partition
-between two specified datetimes.
+This example would retrieve all reviews created in or after January 2023, and in or before March 2023.
 ```python
 from typing import Iterator
 
 items: Iterator[FilmActor] = repo.list_between(
-    partition_id=None,
-    content_start=None,
-    content_end=None,
+    partition_id=[actor1.id],
+    content_start=["2023-01"],
+    content_end=["2023-04"],
     sort_ascending=True, # default order by sort key value
-    limit=None,
-    filters=None
+    limit=None, # integer to cap the total number of returned items
+    filters=None # optional FilterCommand input
 )
 
 ```
