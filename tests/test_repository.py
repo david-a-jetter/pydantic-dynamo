@@ -1,6 +1,5 @@
 import random
-from copy import deepcopy
-from datetime import datetime, date, timezone, time
+from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -8,13 +7,12 @@ from faker import Faker
 
 from pydantic_dynamo.models import PartitionedContent, UpdateCommand, FilterCommand
 from pydantic_dynamo.repository import (
-    _clean_dict,
-    _build_update_args_for_command,
     DynamoRepository,
 )
 from pydantic_dynamo.exceptions import RequestObjectStateError
+from pydantic_dynamo.utils import clean_dict
 from tests.models import ExtraModel, FieldModel, ComposedFieldModel, TestEnum
-from tests.factories import UpdateCommandFactory
+from tests.factories import UpdateCommandFactory, UpdateItemArgumentsFactory
 from tests.factories import boto_exception
 
 fake = Faker()
@@ -24,151 +22,8 @@ def _random_enum():
     return random.choice([s for s in TestEnum])
 
 
-def test_clean_dict():
-    original = {
-        "nested": {
-            "nested_dict": fake.pydict(),
-            "nested_enum": _random_enum(),
-            "nested_list_of_dict": [fake.pydict() for _ in range(3)],
-            "nested_datetime": datetime.now(tz=timezone.utc),
-            "nested_list_of_dt": [datetime.now(tz=timezone.utc) for _ in range(3)],
-            "nested_list_of_date": [date.today() for _ in range(3)],
-            "nested_list_of_time": [time() for _ in range(3)],
-        },
-        "dict": fake.pydict(),
-        "enum": _random_enum(),
-        "list_of_dict": [fake.pydict() for _ in range(3)],
-        "datetime": datetime.now(tz=timezone.utc),
-        "list_of_dt": [datetime.now(tz=timezone.utc) for _ in range(3)],
-        "list_of_date": [date.today() for _ in range(3)],
-        "list_of_time": [time() for _ in range(3)],
-    }
-    og = deepcopy(original)
-    cleaned = _clean_dict(original)
-    assert cleaned["nested"]["nested_dict"].keys() == og["nested"]["nested_dict"].keys()
-    assert cleaned["nested"]["nested_enum"] == og["nested"]["nested_enum"].value
-    assert len(cleaned["nested"]["nested_list_of_dict"]) == len(og["nested"]["nested_list_of_dict"])
-    assert cleaned["nested"]["nested_datetime"] == og["nested"]["nested_datetime"].isoformat()
-    assert cleaned["nested"]["nested_list_of_dt"] == [
-        dt.isoformat() for dt in og["nested"]["nested_list_of_dt"]
-    ]
-    assert cleaned["nested"]["nested_list_of_date"] == [
-        dt.isoformat() for dt in og["nested"]["nested_list_of_date"]
-    ]
-    assert cleaned["nested"]["nested_list_of_time"] == [
-        t.isoformat() for t in og["nested"]["nested_list_of_time"]
-    ]
-    assert cleaned["dict"].keys() == og["dict"].keys()
-    assert cleaned["enum"] == og["enum"].value
-    assert len(cleaned["list_of_dict"]) == len(og["list_of_dict"])
-    assert cleaned["datetime"] == og["datetime"].isoformat()
-    assert cleaned["list_of_dt"] == [dt.isoformat() for dt in og["list_of_dt"]]
-    assert cleaned["list_of_date"] == [dt.isoformat() for dt in og["list_of_date"]]
-    assert cleaned["list_of_time"] == [t.isoformat() for t in og["list_of_time"]]
-
-
-def test_clean_dict_pydantic_base_model():
-    unclean = {
-        "items": [ExtraModel(a="a", b="b"), ExtraModel(c=ExtraModel(c="c"), d=[ExtraModel(d="d")])]
-    }
-    cleaned = _clean_dict(unclean)
-    assert cleaned["items"] == [{"a": "a", "b": "b"}, {"c": {"c": "c"}, "d": [{"d": "d"}]}]
-
-
-@patch("pydantic_dynamo.repository.utc_now")
-def test_build_update_item_arguments(utc_now):
-    now = datetime.now(tz=timezone.utc)
-    utc_now.return_value = now
-    some_string = fake.bs()
-    some_enum = _random_enum()
-    incr_attr = fake.bs()
-    incr_attr2 = fake.bs()
-    incr = fake.pyint()
-    current_version = fake.pyint()
-    el1 = fake.bs()
-    el2 = fake.bs()
-    el3 = fake.bs()
-    command = UpdateCommand(
-        current_version=current_version,
-        set_commands={"some_attr": some_string, "some_enum": some_enum},
-        increment_attrs={incr_attr: incr, incr_attr2: 1},
-        append_attrs={"some_list": [el1, el2], "some_list_2": [el3]},
-    )
-    key = {"partition_key": fake.bs(), "sort_key": fake.bs()}
-
-    update_args = _build_update_args_for_command(command, key=key)
-
-    actual_condition = update_args.condition_expression
-    assert actual_condition.expression_operator == "AND"
-    assert actual_condition._values[1]._values[0].name == "_object_version"
-    assert actual_condition._values[1]._values[1] == current_version
-    assert actual_condition._values[0]._values[1].expression_operator == "="
-    assert actual_condition._values[0]._values[1]._values[0].name == "sort_key"
-    assert actual_condition._values[0]._values[1]._values[1] == key["sort_key"]
-    assert actual_condition._values[0]._values[0].expression_operator == "="
-    assert actual_condition._values[0]._values[0]._values[0].name == "partition_key"
-    assert actual_condition._values[0]._values[0]._values[1] == key["partition_key"]
-
-    assert (
-        update_args.update_expression == "SET #att0 = :val0, #att1 = :val1, #att2 = :val2, "
-        "#att3 = if_not_exists(#att3, :zero) + :val3, "
-        "#att4 = if_not_exists(#att4, :zero) + :val4, "
-        "#att5 = if_not_exists(#att5, :zero) + :val5, "
-        "#att6 = list_append(if_not_exists(#att6, :empty_list), :val6), "
-        "#att7 = list_append(if_not_exists(#att7, :empty_list), :val7)"
-    )
-    assert update_args.attribute_names == {
-        "#att0": "some_attr",
-        "#att1": "some_enum",
-        "#att2": "_timestamp",
-        "#att3": incr_attr,
-        "#att4": incr_attr2,
-        "#att5": "_object_version",
-        "#att6": "some_list",
-        "#att7": "some_list_2",
-    }
-    assert update_args.attribute_values == {
-        ":zero": 0,
-        ":empty_list": [],
-        ":val0": some_string,
-        ":val1": some_enum.value,
-        ":val2": now.isoformat(),
-        ":val3": incr,
-        ":val4": 1,
-        ":val5": 1,
-        ":val6": [el1, el2],
-        ":val7": [el3],
-    }
-
-
-def test_build_update_item_arguments_null_version():
-    command = UpdateCommandFactory(current_version=None)
-
-    update_args = _build_update_args_for_command(command)
-
-    assert update_args.condition_expression is None
-
-
-# TODO: Fix this flaky test
-# def test_build_filter_expression():
-#     filters = FilterCommand(
-#         not_exists={"ne_a", "ne_b"},
-#         equals={"eq_a": True, "eq_b": 1},
-#         not_equals={"dne_a": "dne_b", "dne_c": False},
-#     )
-#     expression = _build_filter_expression(filters)
-#     assert expression == (
-#         Attr("ne_a").not_exists()
-#         & Attr("ne_b").not_exists()
-#         & Attr("eq_a").eq(True)
-#         & Attr("eq_b").eq(1)
-#         & Attr("dne_a").ne("dne_b")
-#         & Attr("dne_c").ne(False)
-#     )
-
-
 @patch("pydantic_dynamo.repository.Session")
-def test_content_repo_build(session_cls):
+def test_dynamo_repo_build(session_cls):
     table = MagicMock()
     session = MagicMock()
     session_cls.return_value = session
@@ -195,10 +50,10 @@ def test_content_repo_build(session_cls):
     assert resource.Table.call_args[0] == (f"{table_name}",)
 
 
-@patch("pydantic_dynamo.repository.utc_now")
-def test_content_repo_put(utc_now):
+@patch("pydantic_dynamo.repository.internal_timestamp")
+def test_dynamo_repo_put(internal_timestamp):
     now = datetime.now(tz=timezone.utc)
-    utc_now.return_value = now
+    internal_timestamp.return_value = {"_timestamp": now.isoformat()}
 
     partition = fake.bs()
     content_type = fake.bs()
@@ -232,12 +87,12 @@ def test_content_repo_put(utc_now):
             sort_key: f"{content_type}#{content_ids[0]}",
             "_object_version": 1,
             "_timestamp": now.isoformat(),
-            **_clean_dict(item_dict),
+            **clean_dict(item_dict),
         }
     }
 
 
-def test_content_repo_get():
+def test_dynamo_repo_get():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -275,7 +130,7 @@ def test_content_repo_get():
     )
 
 
-def test_content_repo_get_batch():
+def test_dynamo_repo_get_batch():
     partition = fake.bothify()
     partition_name = fake.bothify()
     content_type = fake.bothify()
@@ -348,7 +203,7 @@ def test_content_repo_get_batch():
     ]
 
 
-def test_content_repo_get_none_inputs():
+def test_dynamo_repo_get_none_inputs():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -383,7 +238,7 @@ def test_content_repo_get_none_inputs():
     )
 
 
-def test_content_repo_list():
+def test_dynamo_repo_list():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -429,7 +284,7 @@ def test_content_repo_list():
     assert expression._values[1]._values[1] == f"{content_type}#{content_id[0]}#{content_id[1]}"
 
 
-def test_content_repo_list_none_inputs():
+def test_dynamo_repo_list_none_inputs():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -469,7 +324,7 @@ def test_content_repo_list_none_inputs():
     assert expression._values[1]._values[1] == f"{content_type}#"
 
 
-def test_content_repo_list_no_ids():
+def test_dynamo_repo_list_no_ids():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -509,7 +364,7 @@ def test_content_repo_list_no_ids():
     assert expression._values[1]._values[1] == f"{content_type}#"
 
 
-def test_content_repo_list_with_filter():
+def test_dynamo_repo_list_with_filter():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -556,7 +411,7 @@ def test_content_repo_list_with_filter():
     assert expression._values[1]._values[1] == f"{content_type}#{content_id[0]}"
 
 
-def test_content_repo_list_between():
+def test_dynamo_repo_list_between():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -602,7 +457,7 @@ def test_content_repo_list_between():
     assert expression._values[1]._values[2] == f"{content_type}#{content_end[0]}#{content_end[1]}"
 
 
-def test_content_repo_list_between_none_inputs():
+def test_dynamo_repo_list_between_none_inputs():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -638,7 +493,7 @@ def test_content_repo_list_between_none_inputs():
     assert expression._values[1]._values[1] == f"{content_type}#"
 
 
-def test_content_repo_list_between_with_filter():
+def test_dynamo_repo_list_between_with_filter():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -709,10 +564,10 @@ def test_content_get_repo_no_items():
     assert actual is None
 
 
-@patch("pydantic_dynamo.repository.utc_now")
-def test_content_repo_update(utc_now):
-    now = datetime.now(tz=timezone.utc)
-    utc_now.return_value = now
+@patch("pydantic_dynamo.repository.build_update_args_for_command")
+def test_dynamo_repo_update(build_update_args):
+    update_args = UpdateItemArgumentsFactory()
+    build_update_args.return_value = update_args
     partition = fake.bothify()
     partition_name = fake.bothify()
     content_type = fake.bothify()
@@ -751,52 +606,14 @@ def test_content_repo_update(utc_now):
         sort_key: f"{content_type}#{content_id[0]}#{content_id[1]}",
     }
 
-    actual_condition = update_k.pop("ConditionExpression")
-
-    assert actual_condition.expression_operator == "AND"
-    assert actual_condition._values[1]._values[0].name == "_object_version"
-    assert actual_condition._values[1]._values[1] == current_version
-    assert actual_condition._values[0]._values[1].expression_operator == "="
-    assert actual_condition._values[0]._values[1]._values[0].name == sort_key
-    assert (
-        actual_condition._values[0]._values[1]._values[1]
-        == f"{content_type}#{content_id[0]}#{content_id[1]}"
-    )
-    assert actual_condition._values[0]._values[0].expression_operator == "="
-    assert actual_condition._values[0]._values[0]._values[0].name == partition_key
-    assert (
-        actual_condition._values[0]._values[0]._values[1]
-        == f"{partition}#{partition_name}#{partition_id[0]}"
-    )
-
-    assert (
-        update_k.pop("UpdateExpression")
-        == "SET #att0 = :val0, #att1.#att2 = :val1, #att1.#att3 = :val2, #att4 = :val3, "
-        "#att5 = if_not_exists(#att5, :zero) + :val4, "
-        "#att6 = if_not_exists(#att6, :zero) + :val5"
-    )
-    assert update_k.pop("ExpressionAttributeNames") == {
-        "#att0": "test_field",
-        "#att1": "composed",
-        "#att2": "test_field",
-        "#att3": "failures",
-        "#att4": "_timestamp",
-        "#att5": "failures",
-        "#att6": "_object_version",
-    }
-    assert update_k.pop("ExpressionAttributeValues") == {
-        ":zero": 0,
-        ":val0": command.set_commands["test_field"],
-        ":val1": command.set_commands["composed"]["test_field"],
-        ":val2": command.set_commands["composed"]["failures"],
-        ":val3": now.isoformat(),
-        ":val4": 1,
-        ":val5": 1,
-    }
+    assert update_k.pop("ConditionExpression") == update_args.condition_expression
+    assert update_k.pop("UpdateExpression") == update_args.update_expression
+    assert update_k.pop("ExpressionAttributeNames") == update_args.attribute_names
+    assert update_k.pop("ExpressionAttributeValues") == update_args.attribute_values
     assert len(update_k) == 0
 
 
-def test_content_repo_update_condition_check_failed():
+def test_dynamo_repo_update_condition_check_failed():
     item_id = fake.bs()
     content_id = fake.bs()
     table = MagicMock()
@@ -825,7 +642,7 @@ def test_content_repo_update_condition_check_failed():
     assert content_id in str(ex.value)
 
 
-def test_content_repo_update_item_invalid_set_command():
+def test_dynamo_repo_update_item_invalid_set_command():
     item_id = fake.bs()
     content_id = fake.bs()
     table = MagicMock()
@@ -853,7 +670,7 @@ def test_content_repo_update_item_invalid_set_command():
         assert attr in exception_value
 
 
-def test_content_repo_update_item_invalid_incr_command():
+def test_dynamo_repo_update_item_invalid_incr_command():
     item_id = fake.bs()
     content_id = fake.bs()
     table = MagicMock()
@@ -881,7 +698,7 @@ def test_content_repo_update_item_invalid_incr_command():
         assert attr in exception_value
 
 
-def test_content_repo_list_invalid_filter():
+def test_dynamo_repo_list_invalid_filter():
     item_id = fake.bs()
     content_id = fake.bs()
     table = MagicMock()
@@ -909,7 +726,7 @@ def test_content_repo_list_invalid_filter():
         assert attr in exception_value
 
 
-def test_content_repo_delete():
+def test_dynamo_repo_delete():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -965,7 +782,7 @@ def test_content_repo_delete():
     ]
 
 
-def test_content_repo_delete_none_inputs():
+def test_dynamo_repo_delete_none_inputs():
     partition = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()

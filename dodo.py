@@ -20,6 +20,17 @@ def install_deps():
     return "poetry install"
 
 
+def task_black():
+    return {
+        "actions": [
+            *info,
+            CmdAction(install_deps),
+            CmdAction("poetry run black pydantic_dynamo"),
+            CmdAction("poetry run black tests"),
+        ]
+    }
+
+
 def task_test():
     return {
         "actions": [
@@ -28,8 +39,8 @@ def task_test():
             CmdAction(
                 "poetry run python -m pytest tests/ --cov=pydantic_dynamo --cov-report xml:coverage.xml"
             ),
-            CmdAction("poetry run black pydantic_dynamo"),
-            CmdAction("poetry run black tests"),
+            CmdAction("poetry run black --check pydantic_dynamo"),
+            CmdAction("poetry run black --check tests"),
             CmdAction("poetry run mypy pydantic_dynamo tests"),
             CmdAction("poetry run flake8 pydantic_dynamo --ignore=E203,W503"),
             CmdAction("poetry run flake8 tests --ignore=E203,W503"),

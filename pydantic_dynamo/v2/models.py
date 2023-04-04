@@ -1,60 +1,35 @@
-from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import (
-    Generic,
-    TypeVar,
-    List,
-    Optional,
-    Dict,
-    Any,
-    Union,
-    Set,
-    Sequence,
-    Tuple,
-    Iterator,
-    Iterable,
-)
+from abc import abstractmethod, ABC
+from typing import Generic, Optional, List, Iterable, Sequence, Tuple
 
-from pydantic import BaseModel
 from pydantic.generics import GenericModel
 
-ObjT = TypeVar("ObjT", bound=BaseModel)
+from pydantic_dynamo.models import ObjT, PartitionedContent, FilterCommand, UpdateCommand
 
 
-class PartitionedContent(GenericModel, Generic[ObjT]):
-    partition_ids: List[str]
-    content_ids: List[str]
-    item: ObjT
-    current_version: int = 1
-    expiry: Optional[datetime]
+class GetResponse(GenericModel, Generic[ObjT]):
+    item: Optional[PartitionedContent[ObjT]]
 
 
-class UpdateCommand(BaseModel):
-    current_version: Optional[int]
-    set_commands: Dict[str, Any] = {}
-    increment_attrs: Dict[str, int] = {}
-    append_attrs: Dict[str, Optional[List[Union[str, Dict]]]] = {}
-    expiry: Optional[datetime]
+class BatchResponse(GenericModel, Generic[ObjT]):
+    items: List[PartitionedContent[ObjT]]
 
 
-class FilterCommand(BaseModel):
-    not_exists: Set[str] = set()
-    equals: Dict[str, Any] = {}
-    not_equals: Dict[str, Any] = {}
+class QueryResponse(GenericModel, Generic[ObjT]):
+    items: Iterable[PartitionedContent[ObjT]]
 
 
 class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
     @abstractmethod
     def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
-    ) -> Optional[ObjT]:
+    ) -> GetResponse:
         pass
 
     @abstractmethod
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> List[ObjT]:
+    ) -> BatchResponse:
         pass
 
     @abstractmethod
@@ -65,7 +40,7 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[ObjT]:
+    ) -> QueryResponse:
         pass
 
     @abstractmethod
@@ -77,7 +52,7 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[ObjT]:
+    ) -> QueryResponse:
         pass
 
 

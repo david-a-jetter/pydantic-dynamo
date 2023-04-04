@@ -1,21 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Type, Dict, List, Any, Iterable, Union, Optional, Sequence, Tuple
 
 from boto3 import Session
 from boto3.dynamodb.conditions import Key
-from typing import (
-    Optional,
-    Dict,
-    Iterable,
-    Type,
-    List,
-    Any,
-    Union,
-    Iterator,
-    Tuple,
-    Sequence,
-)
 
 from pydantic_dynamo.constants import (
     EMPTY_LIST,
@@ -25,23 +14,18 @@ from pydantic_dynamo.constants import (
     LAST_EVALUATED_KEY,
 )
 from pydantic_dynamo.exceptions import RequestObjectStateError
+from pydantic_dynamo.models import ObjT, PartitionedContent, UpdateCommand, FilterCommand
 from pydantic_dynamo.utils import (
-    chunks,
-    get_error_code,
+    clean_dict,
     internal_timestamp,
+    validate_command_for_schema,
+    get_error_code,
+    chunks,
     validate_filters_for_schema,
     build_filter_expression,
-    validate_command_for_schema,
-    clean_dict,
     build_update_args_for_command,
 )
-from pydantic_dynamo.models import (
-    UpdateCommand,
-    FilterCommand,
-    ObjT,
-    PartitionedContent,
-    AbstractRepository,
-)
+from pydantic_dynamo.v2.models import AbstractRepository, GetResponse, BatchResponse, QueryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +107,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
 
     def _put_content(self, table, content: PartitionedContent[ObjT]) -> None:
         item_dict = clean_dict(content.item.dict())
-        item_dict[INTERNAL_OBJECT_VERSION] = 1
+        item_dict[INTERNAL_OBJECT_VERSION] = content.current_version
         item_dict.update(**internal_timestamp())
         put_item: Dict[str, Union[str, int]] = {
             self._partition_key: self._partition_id(content.partition_ids),
@@ -173,7 +157,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
 
     def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
-    ) -> Optional[ObjT]:
+    ) -> GetResponse:
         if partition_id is None:
             partition_id = EMPTY_LIST
         if content_id is None:
@@ -193,17 +177,17 @@ class DynamoRepository(AbstractRepository[ObjT]):
         db_item = response.get("Item")
         if db_item:
             logger.info("Found item from table by key", extra=log_context)
-            item = self._item_class(**db_item)
+            content = self._db_item_to_object(db_item)
         else:
             logger.info("No item found in table by key", extra=log_context)
-            item = None
-        return item
+            content = None
+        return GetResponse(item=content)
 
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> List[ObjT]:
-        records: List[ObjT] = []
+    ) -> BatchResponse:
+        records: List[PartitionedContent[ObjT]] = []
         batch_number = 0
         for request_id_batch in chunks(request_ids, size=100):
             batch_number += 1
@@ -231,14 +215,19 @@ class DynamoRepository(AbstractRepository[ObjT]):
                     },
                 )
                 batch_response = self._extend_batch(unprocessed_keys, records)
-        return records
+        return BatchResponse(items=records)
 
-    def _extend_batch(self, request_keys: List[Dict[str, str]], records: List[ObjT]):
+    def _extend_batch(
+        self, request_keys: List[Dict[str, str]], records: List[PartitionedContent[ObjT]]
+    ):
         batch_response = self._resource.batch_get_item(
             RequestItems={self._table_name: {"Keys": request_keys}}
         )
         records.extend(
-            (self._item_class(**i) for i in batch_response["Responses"].get(self._table_name, []))
+            (
+                self._db_item_to_object(db_item)
+                for db_item in batch_response["Responses"].get(self._table_name, [])
+            )
         )
         return batch_response
 
@@ -249,7 +238,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[ObjT]:
+    ) -> QueryResponse:
         if partition_id is None:
             partition_id = EMPTY_LIST
         if content_prefix is None:
@@ -260,7 +249,10 @@ class DynamoRepository(AbstractRepository[ObjT]):
         ).begins_with(self._content_id(content_prefix))
         logger.info("Starting query for content with prefix query")
         items = self._query_all_data(condition, sort_ascending, limit, filters)
-        yield from (self._item_class(**item) for item in items)
+        response: QueryResponse = QueryResponse(
+            items=(self._db_item_to_object(db_item) for db_item in items)
+        )
+        return response
 
     def list_between(
         self,
@@ -270,7 +262,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[ObjT]:
+    ) -> QueryResponse:
         log_context = {
             "partition_id": partition_id,
             "content_start": content_start,
@@ -289,7 +281,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 "Content start and end filters are equal. Deferring to list",
                 extra=log_context,
             )
-            yield from self.list(partition_id, content_start)
+            return self.list(partition_id, content_start)
         else:
             partition_id = self._partition_id(partition_id)
             sort_start = self._content_id(content_start)
@@ -307,7 +299,17 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 },
             )
             items = self._query_all_data(condition, sort_ascending, limit, filters)
-            yield from (self._item_class(**item) for item in items)
+            response: QueryResponse = QueryResponse(
+                items=(self._db_item_to_object(db_item) for db_item in items)
+            )
+            return response
+
+    def _db_item_to_object(self, db_item: Dict[str, Any]) -> PartitionedContent[ObjT]:
+        return PartitionedContent[ObjT](
+            partition_ids=db_item.pop(self._partition_key).split("#"),
+            content_ids=db_item.pop(self._sort_key).split("#"),
+            item=self._item_class(**db_item),
+        )
 
     def delete(
         self,
