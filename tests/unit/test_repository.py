@@ -11,7 +11,7 @@ from pydantic_dynamo.repository import (
 )
 from pydantic_dynamo.exceptions import RequestObjectStateError
 from pydantic_dynamo.utils import clean_dict
-from tests.models import ExtraModel, FieldModel, ComposedFieldModel, TestEnum
+from tests.models import ExtraModel, FieldModel, ComposedFieldModel, CountEnum
 from tests.factories import UpdateCommandFactory, UpdateItemArgumentsFactory
 from tests.factories import boto_exception
 
@@ -19,7 +19,7 @@ fake = Faker()
 
 
 def _random_enum():
-    return random.choice([s for s in TestEnum])
+    return random.choice([s for s in CountEnum])
 
 
 @patch("pydantic_dynamo.repository.Session")

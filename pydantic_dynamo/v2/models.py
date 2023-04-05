@@ -7,15 +7,15 @@ from pydantic_dynamo.models import ObjT, PartitionedContent, FilterCommand, Upda
 
 
 class GetResponse(GenericModel, Generic[ObjT]):
-    item: Optional[PartitionedContent[ObjT]]
+    content: Optional[PartitionedContent[ObjT]]
 
 
 class BatchResponse(GenericModel, Generic[ObjT]):
-    items: List[PartitionedContent[ObjT]]
+    contents: List[PartitionedContent[ObjT]]
 
 
 class QueryResponse(GenericModel, Generic[ObjT]):
-    items: Iterable[PartitionedContent[ObjT]]
+    contents: Iterable[PartitionedContent[ObjT]]
 
 
 class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):

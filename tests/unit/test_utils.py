@@ -14,13 +14,13 @@ from pydantic_dynamo.utils import (
     build_update_args_for_command,
 )
 from tests.factories import UpdateCommandFactory
-from tests.models import ExtraModel, TestEnum
+from tests.models import ExtraModel, CountEnum
 
 fake = Faker()
 
 
 def _random_enum():
-    return random.choice([s for s in TestEnum])
+    return random.choice([s for s in CountEnum])
 
 
 def test_get_error_code():

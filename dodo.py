@@ -37,7 +37,12 @@ def task_test():
             *info,
             CmdAction(install_deps),
             CmdAction(
-                "poetry run python -m pytest tests/ --cov=pydantic_dynamo --cov-report xml:coverage.xml"
+                "poetry run python -m pytest tests/unit "
+                "--cov=pydantic_dynamo --cov-report xml:unit-coverage.xml"
+            ),
+            CmdAction(
+                "poetry run python -m pytest tests/integration "
+                "--cov=pydantic_dynamo --cov-report xml:integration-coverage.xml"
             ),
             CmdAction("poetry run black --check pydantic_dynamo"),
             CmdAction("poetry run black --check tests"),

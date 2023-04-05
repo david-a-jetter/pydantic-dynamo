@@ -181,7 +181,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         else:
             logger.info("No item found in table by key", extra=log_context)
             content = None
-        return GetResponse(item=content)
+        return GetResponse(content=content)
 
     def get_batch(
         self,
@@ -215,7 +215,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
                     },
                 )
                 batch_response = self._extend_batch(unprocessed_keys, records)
-        return BatchResponse(items=records)
+        return BatchResponse(contents=records)
 
     def _extend_batch(
         self, request_keys: List[Dict[str, str]], records: List[PartitionedContent[ObjT]]
@@ -250,7 +250,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         logger.info("Starting query for content with prefix query")
         items = self._query_all_data(condition, sort_ascending, limit, filters)
         response: QueryResponse = QueryResponse(
-            items=(self._db_item_to_object(db_item) for db_item in items)
+            contents=(self._db_item_to_object(db_item) for db_item in items)
         )
         return response
 
@@ -300,7 +300,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
             )
             items = self._query_all_data(condition, sort_ascending, limit, filters)
             response: QueryResponse = QueryResponse(
-                items=(self._db_item_to_object(db_item) for db_item in items)
+                contents=(self._db_item_to_object(db_item) for db_item in items)
             )
             return response
 
