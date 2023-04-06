@@ -1,11 +1,9 @@
-from datetime import date, time, timezone
-
 from faker import Faker
 
-from pydantic_dynamo.models import PartitionedContent, FilterCommand
-from pydantic_dynamo.v2.models import GetResponse, BatchResponse, QueryResponse
-from tests.factories import random_element, ExamplePartitionedContentFactory
-from tests.models import FieldModel, Example, CountEnum
+from pydantic_dynamo.models import FilterCommand
+from pydantic_dynamo.v2.models import GetResponse, BatchResponse
+from tests.factories import ExamplePartitionedContentFactory
+from tests.models import CountEnum
 
 fake = Faker()
 

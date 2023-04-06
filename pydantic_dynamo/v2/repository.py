@@ -309,7 +309,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         expiry: Optional[datetime] = None
         if db_expiry := db_item.pop(INTERNAL_TTL, None):
             expiry = datetime.fromtimestamp(db_expiry)
-        return PartitionedContent[self._item_class](
+        return PartitionedContent[self._item_class](  # type: ignore[name-defined]
             partition_ids=db_item.pop(self._partition_key)
             .lstrip(self._partition_id(EMPTY_LIST))
             .split("#"),
