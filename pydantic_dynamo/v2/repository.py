@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Type, Dict, List, Any, Iterable, Union, Optional, Sequence, Tuple
 
 from boto3 import Session
@@ -305,10 +306,17 @@ class DynamoRepository(AbstractRepository[ObjT]):
             return response
 
     def _db_item_to_object(self, db_item: Dict[str, Any]) -> PartitionedContent[ObjT]:
-        return PartitionedContent[ObjT](
-            partition_ids=db_item.pop(self._partition_key).split("#"),
-            content_ids=db_item.pop(self._sort_key).split("#"),
+        expiry: Optional[datetime] = None
+        if db_expiry := db_item.pop(INTERNAL_TTL, None):
+            expiry = datetime.fromtimestamp(db_expiry)
+        return PartitionedContent[self._item_class](
+            partition_ids=db_item.pop(self._partition_key)
+            .lstrip(self._partition_id(EMPTY_LIST))
+            .split("#"),
+            content_ids=db_item.pop(self._sort_key).lstrip(self._content_id(EMPTY_LIST)).split("#"),
             item=self._item_class(**db_item),
+            current_version=db_item.pop(INTERNAL_OBJECT_VERSION),
+            expiry=expiry,
         )
 
     def delete(
