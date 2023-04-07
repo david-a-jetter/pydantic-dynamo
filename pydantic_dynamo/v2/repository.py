@@ -338,7 +338,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
             self._sort_key
         ).begins_with(self._content_id(content_prefix))
         logger.info("Starting query for content to delete with prefix query", extra=log_context)
-        items = self._query_all_data(condition)
+        items = self._query_all_data(condition, select_fields=(self._partition_key, self._sort_key))
         with self._table.batch_writer() as writer:
             for item in items:
                 writer.delete_item(
@@ -371,6 +371,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
+        select_fields: Optional[Sequence[str]] = None,
     ) -> Iterable[Dict]:
         query_kwargs = {
             "KeyConditionExpression": key_condition_expression,
@@ -382,6 +383,17 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 query_kwargs[FILTER_EXPRESSION] = filter_expression
         if limit and FILTER_EXPRESSION not in query_kwargs:
             query_kwargs["Limit"] = limit
+        if select_fields:
+            expression_attribute_names = {
+                f"#att{i}": field for i, field in enumerate(select_fields)
+            }
+            query_kwargs.update(
+                **{
+                    "Select": "SPECIFIC_ATTRIBUTES",
+                    "ProjectionExpression": ", ".join(expression_attribute_names.keys()),
+                    "ExpressionAttributeNames": expression_attribute_names,
+                }
+            )
 
         response = self._table.query(**query_kwargs)
         total_count = response["Count"]

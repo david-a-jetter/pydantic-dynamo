@@ -261,3 +261,23 @@ def test_update_mismatched_version(v2_example_repo):
 
     assert partition_id[0] in str(ex)
     assert content_id[0] in str(ex)
+
+
+def test_put_batch_then_delete(v2_example_repo):
+    partition_ids = [fake.bothify()]
+    # 25 seems to be the boto3 default size for batch writes, 100 is the limit for batch gets
+    # 137 ensures we span both of those limits and do so with partial size batches
+    content_ids_list = [[str(i).rjust(3, "0")] for i in range(137)]
+    contents = [
+        ExamplePartitionedContentFactory(partition_ids=partition_ids, content_ids=content_ids)
+        for content_ids in content_ids_list
+    ]
+    v2_example_repo.put_batch(contents)
+    v2_example_repo.delete(partition_ids, ["0"])
+
+    remaining = v2_example_repo.list(
+        partition_ids,
+        None,
+    )
+
+    assert list(remaining.contents) == contents[100:]
