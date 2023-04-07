@@ -36,3 +36,4 @@ class Example(BaseModel):
     time_field: time
     datetime_field: datetime
     enum_field: CountEnum
+    int_field: int

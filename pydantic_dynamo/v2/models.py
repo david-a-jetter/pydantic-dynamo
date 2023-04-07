@@ -71,6 +71,7 @@ class AbstractRepository(ReadOnlyAbstractRepository[ObjT], ABC):
         partition_id: Optional[Sequence[str]],
         content_id: Optional[Sequence[str]],
         command: UpdateCommand,
+        require_exists: bool,
     ) -> None:
         pass
 

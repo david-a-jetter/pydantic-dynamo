@@ -67,6 +67,7 @@ class ExampleFactory(factory.Factory):
     time_field = factory.LazyFunction(lambda: time.fromisoformat(fake.time()))
     datetime_field = factory.Faker("date_time", tzinfo=timezone.utc)
     enum_field = factory.LazyFunction(lambda: random_element(CountEnum))
+    int_field = factory.Faker("pyint")
 
 
 class ExamplePartitionedContentFactory(factory.Factory):
