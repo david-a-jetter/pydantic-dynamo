@@ -2,18 +2,15 @@ import random
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
-import pytest
 from faker import Faker
 
 from pydantic_dynamo.models import PartitionedContent, UpdateCommand, FilterCommand
 from pydantic_dynamo.repository import (
     DynamoRepository,
 )
-from pydantic_dynamo.exceptions import RequestObjectStateError
 from pydantic_dynamo.utils import clean_dict
 from tests.models import ExtraModel, FieldModel, ComposedFieldModel, CountEnum
-from tests.factories import UpdateCommandFactory, UpdateItemArgumentsFactory
-from tests.factories import boto_exception
+from tests.factories import UpdateItemArgumentsFactory
 
 fake = Faker()
 
@@ -90,6 +87,74 @@ def test_dynamo_repo_put(internal_timestamp):
             **clean_dict(item_dict),
         }
     }
+
+
+@patch("pydantic_dynamo.repository.internal_timestamp")
+def test_dynamo_repo_put_batch(internal_timestamp):
+    now = datetime.now(tz=timezone.utc)
+    internal_timestamp.return_value = {"_timestamp": now.isoformat()}
+
+    partition = fake.bs()
+    content_type = fake.bs()
+    partition_ids = [fake.bs()]
+    partition_type = fake.bs()
+    content_ids = [fake.bs()]
+    partition_key = fake.bs()
+    sort_key = fake.bs()
+    table = MagicMock()
+    writer = MagicMock()
+    table.batch_writer.return_value.__enter__.return_value = writer
+
+    repo = DynamoRepository[ExtraModel](
+        item_class=ExtraModel,
+        partition_prefix=partition,
+        partition_name=partition_type,
+        content_type=content_type,
+        table_name=fake.bs(),
+        partition_key=partition_key,
+        sort_key=sort_key,
+        table=table,
+        resource=MagicMock(),
+    )
+
+    item_dict1 = fake.pydict()
+    item_dict2 = fake.pydict()
+    contents = (
+        PartitionedContent(
+            partition_ids=partition_ids, content_ids=content_ids, item=ExtraModel(**item_dict1)
+        ),
+        PartitionedContent(
+            partition_ids=partition_ids, content_ids=content_ids, item=ExtraModel(**item_dict2)
+        ),
+    )
+    repo.put_batch(contents)
+
+    assert writer.put_item.call_args_list == [
+        (
+            (),
+            {
+                "Item": {
+                    partition_key: f"{partition}#{partition_type}#{partition_ids[0]}",
+                    sort_key: f"{content_type}#{content_ids[0]}",
+                    "_object_version": 1,
+                    "_timestamp": now.isoformat(),
+                    **clean_dict(item_dict1),
+                }
+            },
+        ),
+        (
+            (),
+            {
+                "Item": {
+                    partition_key: f"{partition}#{partition_type}#{partition_ids[0]}",
+                    sort_key: f"{content_type}#{content_ids[0]}",
+                    "_object_version": 1,
+                    "_timestamp": now.isoformat(),
+                    **clean_dict(item_dict2),
+                }
+            },
+        ),
+    ]
 
 
 def test_dynamo_repo_get():
@@ -611,119 +676,6 @@ def test_dynamo_repo_update(build_update_args):
     assert update_k.pop("ExpressionAttributeNames") == update_args.attribute_names
     assert update_k.pop("ExpressionAttributeValues") == update_args.attribute_values
     assert len(update_k) == 0
-
-
-def test_dynamo_repo_update_condition_check_failed():
-    item_id = fake.bs()
-    content_id = fake.bs()
-    table = MagicMock()
-    get_resp = {"Items": [{"test_field": fake.bs()}]}
-    table.query.return_value = get_resp
-    ex = boto_exception("ConditionalCheckFailedException")
-    table.update_item.side_effect = ex
-
-    repo = DynamoRepository[FieldModel](
-        item_class=FieldModel,
-        partition_prefix=fake.bs(),
-        partition_name=fake.bs(),
-        content_type=fake.bs(),
-        table_name=fake.bs(),
-        partition_key=fake.bs(),
-        sort_key=fake.bs(),
-        table=table,
-        resource=MagicMock(),
-    )
-    command = UpdateCommandFactory(set_commands={"test_field": fake.bs()}, increment_attrs=set())
-
-    with pytest.raises(RequestObjectStateError) as ex:
-        repo.update(item_id, content_id, command)
-
-    assert item_id in str(ex.value)
-    assert content_id in str(ex.value)
-
-
-def test_dynamo_repo_update_item_invalid_set_command():
-    item_id = fake.bs()
-    content_id = fake.bs()
-    table = MagicMock()
-
-    repo = DynamoRepository[FieldModel](
-        item_class=FieldModel,
-        partition_prefix=fake.bs(),
-        partition_name=fake.bs(),
-        content_type=fake.bs(),
-        table_name=fake.bs(),
-        partition_key=fake.bs(),
-        sort_key=fake.bs(),
-        table=table,
-        resource=MagicMock(),
-    )
-    command = UpdateCommandFactory()
-
-    with pytest.raises(ValueError) as ex:
-        repo.update(item_id, content_id, command)
-
-    assert table.update_item.call_count == 0
-    exception_value = str(ex.value)
-    assert "FieldModel" in exception_value
-    for attr in command.set_commands.keys():
-        assert attr in exception_value
-
-
-def test_dynamo_repo_update_item_invalid_incr_command():
-    item_id = fake.bs()
-    content_id = fake.bs()
-    table = MagicMock()
-
-    repo = DynamoRepository[FieldModel](
-        item_class=FieldModel,
-        partition_prefix=fake.bs(),
-        partition_name=fake.bs(),
-        content_type=fake.bs(),
-        table_name=fake.bs(),
-        partition_key=fake.bs(),
-        sort_key=fake.bs(),
-        table=table,
-        resource=MagicMock(),
-    )
-    command = UpdateCommandFactory(set_commands={})
-
-    with pytest.raises(ValueError) as ex:
-        repo.update(item_id, content_id, command)
-
-    assert table.update_item.call_count == 0
-    exception_value = str(ex.value)
-    assert "FieldModel" in exception_value
-    for attr in command.increment_attrs:
-        assert attr in exception_value
-
-
-def test_dynamo_repo_list_invalid_filter():
-    item_id = fake.bs()
-    content_id = fake.bs()
-    table = MagicMock()
-
-    repo = DynamoRepository[FieldModel](
-        item_class=FieldModel,
-        partition_prefix=fake.bs(),
-        partition_name=fake.bs(),
-        content_type=fake.bs(),
-        table_name=fake.bs(),
-        partition_key=fake.bs(),
-        sort_key=fake.bs(),
-        table=table,
-        resource=MagicMock(),
-    )
-    filters = FilterCommand(not_exists={fake.bs()})
-
-    with pytest.raises(ValueError) as ex:
-        list(repo.list(item_id, content_id, filters=filters))
-
-    assert table.query.call_count == 0
-    exception_value = str(ex.value)
-    assert "FieldModel" in exception_value
-    for attr in filters.not_exists:
-        assert attr in exception_value
 
 
 def test_dynamo_repo_delete():

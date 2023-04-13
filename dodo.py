@@ -37,7 +37,7 @@ def task_test():
             *info,
             CmdAction(install_deps),
             CmdAction(
-                "poetry run python -m pytest tests/unit "
+                "poetry run python -m pytest tests/test_unit "
                 "--cov=pydantic_dynamo --cov-report xml:unit-coverage.xml"
             ),
             CmdAction("poetry run black --check pydantic_dynamo"),
@@ -46,7 +46,7 @@ def task_test():
             CmdAction("poetry run flake8 pydantic_dynamo --ignore=E203,W503"),
             CmdAction("poetry run flake8 tests --ignore=E203,W503"),
             CmdAction(
-                "poetry run python -m pytest tests/integration "
+                "poetry run python -m pytest tests/test_integration "
                 "--cov=pydantic_dynamo --cov-report xml:integration-coverage.xml"
             ),
         ],

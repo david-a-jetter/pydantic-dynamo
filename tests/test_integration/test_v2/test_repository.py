@@ -7,8 +7,8 @@ from faker import Faker
 from pydantic_dynamo.exceptions import RequestObjectStateError
 from pydantic_dynamo.models import FilterCommand, UpdateCommand, PartitionedContent
 from pydantic_dynamo.v2.models import GetResponse, BatchResponse
-from tests.factories import ExamplePartitionedContentFactory
-from tests.models import CountEnum, Example
+from tests.factories import ExamplePartitionedContentFactory, ExampleFactory
+from tests.models import CountEnum, Example, FieldModel
 
 fake = Faker()
 
@@ -217,6 +217,67 @@ def test_update_happy_path(v2_example_repo):
     )
 
     assert updated.content == expected
+
+
+def test_update_nested_model_field(v2_example_repo):
+    partition_id = [fake.bothify()]
+    content_id = [fake.bothify()]
+    init_value = fake.bs()
+    content = ExamplePartitionedContentFactory(
+        partition_ids=partition_id,
+        content_ids=content_id,
+        item=ExampleFactory(model_field=FieldModel(test_field=init_value, failures=1)),
+    )
+    v2_example_repo.put(content)
+    v2_example_repo.update(
+        partition_id,
+        content_id,
+        UpdateCommand(set_commands={"model_field": {"failures": 2}}),
+    )
+    updated = v2_example_repo.get(partition_id, content_id)
+    expected = GetResponse(
+        content=PartitionedContent[Example](
+            partition_ids=partition_id,
+            content_ids=content_id,
+            item=Example(
+                model_field=FieldModel(test_field=init_value, failures=2),
+                **content.item.dict(exclude={"model_field"})
+            ),
+            current_version=2,
+        )
+    )
+    assert updated == expected
+
+
+def test_update_nested_dict_field(v2_example_repo):
+    partition_id = [fake.bothify()]
+    content_id = [fake.bothify()]
+    init_value = fake.bs()
+    content = ExamplePartitionedContentFactory(
+        partition_ids=partition_id,
+        content_ids=content_id,
+        item=ExampleFactory(dict_field={"one": init_value, "two": init_value}),
+    )
+    v2_example_repo.put(content)
+    new_value = fake.bs()
+    v2_example_repo.update(
+        partition_id,
+        content_id,
+        UpdateCommand(set_commands={"dict_field": {"two": new_value}}),
+    )
+    updated = v2_example_repo.get(partition_id, content_id)
+    expected = GetResponse(
+        content=PartitionedContent[Example](
+            partition_ids=partition_id,
+            content_ids=content_id,
+            item=Example(
+                dict_field={"one": init_value, "two": new_value},
+                **content.item.dict(exclude={"dict_field"})
+            ),
+            current_version=2,
+        )
+    )
+    assert updated == expected
 
 
 def test_update_requires_exists_but_doesnt(v2_example_repo):

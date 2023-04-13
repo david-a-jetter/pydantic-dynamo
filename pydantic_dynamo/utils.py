@@ -14,6 +14,10 @@ from pydantic_dynamo.models import UpdateCommand, FilterCommand
 logger = logging.getLogger(__name__)
 
 
+def utc_now() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
 def internal_timestamp() -> Dict[str, str]:
     return {INTERNAL_TIMESTAMP_KEY: utc_now().isoformat()}
 
@@ -22,10 +26,6 @@ def get_error_code(ex: Exception) -> Optional[str]:
     if hasattr(ex, "response"):
         return ex.response.get("Error", {}).get("Code")  # type: ignore[no-any-return,attr-defined]
     return None
-
-
-def utc_now() -> datetime:
-    return datetime.now(tz=timezone.utc)
 
 
 def chunks(items: Sequence, size: int) -> Iterable[Sequence]:
@@ -74,7 +74,6 @@ def clean_dict(item_dict: Dict) -> Dict:
                 dicts.append(v)
             elif isinstance(v, BaseModel):
                 current_dict[k] = clean_dict(v.dict())
-            # TODO: Add Test for Set condition
             elif isinstance(v, (List, Set)):
                 if len(v) > 0:
                     first = next(iter(v))
@@ -185,20 +184,7 @@ def build_update_args_for_command(
         attr_count += 1
         val_count += 1
 
-    condition = None
-    if key:
-        for k, v in key.items():
-            key_condition = Attr(k).eq(v)
-            if condition:
-                condition = condition & key_condition
-            else:
-                condition = key_condition
-    if command.current_version:
-        version_condition = Attr(INTERNAL_OBJECT_VERSION).eq(command.current_version)
-        if condition:
-            condition = condition & version_condition
-        else:
-            condition = version_condition
+    condition = build_update_condition(command, key)
     clean_values = clean_dict(values)
     arguments = UpdateItemArguments(
         update_expression=update_expression.getvalue(),
@@ -213,6 +199,28 @@ def build_update_args_for_command(
     )
 
     return arguments
+
+
+def build_update_condition(
+    command: UpdateCommand,
+    key: Optional[Dict[str, str]] = None,
+) -> Optional[ConditionBase]:
+    condition = None
+    if key:
+        for k, v in key.items():
+            key_condition = Attr(k).eq(v)
+            if condition:
+                condition = condition & key_condition
+            else:
+                condition = key_condition
+    if command.current_version:
+        version_condition = Attr(INTERNAL_OBJECT_VERSION).eq(command.current_version)
+        if condition:
+            condition = condition & version_condition
+        else:
+            condition = version_condition
+
+    return condition
 
 
 def build_filter_expression(filters: FilterCommand) -> Optional[ConditionBase]:
@@ -251,13 +259,15 @@ def validate_command_for_schema(schema: Dict, command: UpdateCommand) -> None:
             set_error_keys.append(k)
             continue
         if isinstance(v, Dict):
-            schema_prop_key = schema_prop["$ref"].split("/")[-1]
-            nested_schema = schema["definitions"][schema_prop_key]
-            nested_props: Dict = nested_schema.get("properties")  # type: ignore[assignment]
-            for nested_k, nested_v in v.items():
-                nested_prop = nested_props.get(nested_k)
-                if not nested_prop:
-                    set_error_keys.append(f"{v}.{nested_k}")
+            if schema_prop_ref := schema_prop.get("$ref"):
+                schema_prop_key = schema_prop_ref.split("/")[-1]
+                nested_schema = schema["definitions"][schema_prop_key]
+                nested_props: Dict = nested_schema.get("properties")  # type: ignore[assignment]
+                for nested_k, nested_v in v.items():
+                    if nested_k not in nested_props:
+                        set_error_keys.append(f"{k}.{nested_k}")
+            elif schema_prop["type"] != "object":
+                set_error_keys.append(k)
 
     if len(set_error_keys) > 0:
         raise ValueError(
