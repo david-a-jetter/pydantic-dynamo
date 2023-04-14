@@ -4,7 +4,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Type, Dict, List, Any, Iterable, Union, Optional, Sequence, Tuple
 
-from boto3 import Session
 from boto3.dynamodb.conditions import Key
 
 from pydantic_dynamo.constants import (
@@ -32,29 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 class DynamoRepository(AbstractRepository[ObjT]):
-    @classmethod
-    def build(
-        cls,
-        table_name: str,
-        item_class: Type[ObjT],
-        partition_prefix: str,
-        partition_name: str,
-        content_type: str,
-    ) -> DynamoRepository[ObjT]:
-        resource = Session().resource("dynamodb")
-        table = resource.Table(table_name)
-        return cls(
-            item_class=item_class,
-            partition_prefix=partition_prefix,
-            partition_name=partition_name,
-            content_type=content_type,
-            table_name=table_name,
-            partition_key="_table_item_id",
-            sort_key="_table_content_id",
-            table=table,
-            resource=resource,
-        )
-
     def __init__(
         self,
         *,
@@ -311,9 +287,11 @@ class DynamoRepository(AbstractRepository[ObjT]):
             expiry = datetime.fromtimestamp(db_expiry, tz=timezone.utc)
         return PartitionedContent[self._item_class](  # type: ignore[name-defined]
             partition_ids=db_item.pop(self._partition_key)
-            .lstrip(self._partition_id(EMPTY_LIST))
+            .replace(self._partition_id(EMPTY_LIST), "", 1)
             .split("#"),
-            content_ids=db_item.pop(self._sort_key).lstrip(self._content_id(EMPTY_LIST)).split("#"),
+            content_ids=db_item.pop(self._sort_key)
+            .replace(self._content_id(EMPTY_LIST), "", 1)
+            .split("#"),
             item=self._item_class(**db_item),
             current_version=db_item.pop(INTERNAL_OBJECT_VERSION),
             expiry=expiry,

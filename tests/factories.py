@@ -1,6 +1,6 @@
 import random
 from datetime import date, time, timezone
-from typing import Iterable, TypeVar
+from typing import Iterable, TypeVar, Dict
 
 import factory
 from boto3.dynamodb.conditions import Attr
@@ -61,8 +61,8 @@ class ExampleFactory(factory.Factory):
 
     dict_field = factory.LazyFunction(lambda: {fake.bothify(): FieldModel(test_field=fake.bs())})
     model_field = factory.SubFactory(FieldModelFactory)
-    list_field = factory.List((fake.bs() for _ in range(2)))
-    set_field = factory.LazyFunction(lambda: {fake.bs() for _ in range(2)})
+    list_field = factory.List((fake.bs() for _ in range(5)))
+    set_field = factory.LazyFunction(lambda: {fake.bs() for _ in range(5)})
     date_field = factory.LazyFunction(lambda: date.fromisoformat(fake.date()))
     time_field = factory.LazyFunction(lambda: time.fromisoformat(fake.time()))
     datetime_field = factory.Faker("date_time", tzinfo=timezone.utc)
@@ -77,3 +77,24 @@ class ExamplePartitionedContentFactory(factory.Factory):
     partition_ids = factory.List((fake.bothify() for _ in range(2)))
     content_ids = factory.List((fake.bothify() for _ in range(2)))
     item = factory.SubFactory(ExampleFactory)
+
+
+def example_content_to_db_item(
+    partition_key: str,
+    partition_prefix: str,
+    partition_name: str,
+    sort_key: str,
+    content_type: str,
+    example: PartitionedContent[Example],
+) -> Dict:
+    db_item = {
+        partition_key: "#".join((partition_prefix, partition_name, *example.partition_ids)),
+        sort_key: "#".join((content_type, *example.content_ids)),
+        "_object_version": example.current_version,
+        **example.item.dict(),
+    }
+
+    if expiry := example.expiry:
+        db_item["_ttl"] = int(expiry.timestamp())
+
+    return db_item

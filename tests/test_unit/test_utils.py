@@ -230,7 +230,11 @@ def test_clean_dict():
     assert cleaned["list_of_dt"] == [dt.isoformat() for dt in og["list_of_dt"]]
     assert cleaned["list_of_date"] == [dt.isoformat() for dt in og["list_of_date"]]
     assert cleaned["list_of_time"] == [t.isoformat() for t in og["list_of_time"]]
-    assert cleaned["composed"] == _example_to_expected(composed)
+
+    # Need to explicitly assert on set_field because it's not reliably sorted
+    expected = _example_to_expected(composed)
+    assert sorted(cleaned["composed"].pop("set_field")) == sorted(expected.pop("set_field"))
+    assert cleaned["composed"] == expected
 
 
 # dict_field only supports strings or instances of FieldModel
@@ -250,6 +254,7 @@ def _example_to_expected(example: Example) -> Dict:
         "datetime_field": example.datetime_field.isoformat(),
         "enum_field": example.enum_field.value,
         "int_field": example.int_field,
+        "optional_field": example.optional_field,
     }
 
 
@@ -307,13 +312,14 @@ def test_build_update_item_arguments(utc_now):
         "#att2.#att3 = :val2, #att2.#att4 = :val3, "
         "#att2.#att5 = :val4, #att2.#att6 = :val5, "
         "#att2.#att7 = :val6, #att2.#att8 = :val7, "
-        "#att2.#att9 = :val8, #att2.#att10 = :val9, #att2.#att11 = :val10, "
-        "#att12 = :val11, #att13 = :val12, "
-        "#att14 = if_not_exists(#att14, :zero) + :val13, "
+        "#att2.#att9 = :val8, #att2.#att10 = :val9, "
+        "#att2.#att11 = :val10, #att2.#att12 = :val11, "
+        "#att13 = :val12, #att14 = :val13, "
         "#att15 = if_not_exists(#att15, :zero) + :val14, "
         "#att16 = if_not_exists(#att16, :zero) + :val15, "
-        "#att17 = list_append(if_not_exists(#att17, :empty_list), :val16), "
-        "#att18 = list_append(if_not_exists(#att18, :empty_list), :val17)"
+        "#att17 = if_not_exists(#att17, :zero) + :val16, "
+        "#att18 = list_append(if_not_exists(#att18, :empty_list), :val17), "
+        "#att19 = list_append(if_not_exists(#att19, :empty_list), :val18)"
     )
     assert update_args.attribute_names == {
         "#att0": "some_attr",
@@ -328,13 +334,14 @@ def test_build_update_item_arguments(utc_now):
         "#att9": "datetime_field",
         "#att10": "enum_field",
         "#att11": "int_field",
-        "#att12": "_timestamp",
-        "#att13": "_ttl",
-        "#att14": incr_attr,
-        "#att15": incr_attr2,
-        "#att16": "_object_version",
-        "#att17": "some_list",
-        "#att18": "some_list_2",
+        "#att12": "optional_field",
+        "#att13": "_timestamp",
+        "#att14": "_ttl",
+        "#att15": incr_attr,
+        "#att16": incr_attr2,
+        "#att17": "_object_version",
+        "#att18": "some_list",
+        "#att19": "some_list_2",
     }
     assert update_args.attribute_values == {
         ":zero": 0,
@@ -350,13 +357,14 @@ def test_build_update_item_arguments(utc_now):
         ":val8": some_example.datetime_field.isoformat(),
         ":val9": some_example.enum_field.value,
         ":val10": some_example.int_field,
-        ":val11": now.isoformat(),
-        ":val12": int(expiry.timestamp()),
-        ":val13": incr,
-        ":val14": 1,
+        ":val11": None,
+        ":val12": now.isoformat(),
+        ":val13": int(expiry.timestamp()),
+        ":val14": incr,
         ":val15": 1,
-        ":val16": [el1, el2],
-        ":val17": [el3],
+        ":val16": 1,
+        ":val17": [el1, el2],
+        ":val18": [el3],
     }
 
 

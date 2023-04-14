@@ -37,3 +37,4 @@ class Example(BaseModel):
     datetime_field: datetime
     enum_field: CountEnum
     int_field: int
+    optional_field: Optional[int]
