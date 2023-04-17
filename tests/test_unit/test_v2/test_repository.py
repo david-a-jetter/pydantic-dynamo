@@ -9,7 +9,7 @@ from pydantic_dynamo.v2.repository import (
     DynamoRepository,
 )
 from pydantic_dynamo.utils import clean_dict
-from tests.models import ExtraModel, FieldModel, ComposedFieldModel, CountEnum, Example
+from tests.models import FieldModel, ComposedFieldModel, Example
 from tests.factories import (
     UpdateItemArgumentsFactory,
     ExamplePartitionedContentFactory,
@@ -20,10 +20,6 @@ from pydantic_dynamo.v2.models import GetResponse, BatchResponse
 fake = Faker()
 
 
-def _random_enum():
-    return random.choice([s for s in CountEnum])
-
-
 @patch("pydantic_dynamo.v2.repository.internal_timestamp")
 def test_dynamo_repo_put(internal_timestamp):
     now = datetime.now(tz=timezone.utc)
@@ -31,15 +27,13 @@ def test_dynamo_repo_put(internal_timestamp):
 
     partition = fake.bs()
     content_type = fake.bs()
-    partition_ids = [fake.bs()]
     partition_type = fake.bs()
-    content_ids = [fake.bs()]
     partition_key = fake.bs()
     sort_key = fake.bs()
     table = MagicMock()
 
-    repo = DynamoRepository[ExtraModel](
-        item_class=ExtraModel,
+    repo = DynamoRepository[Example](
+        item_class=Example,
         partition_prefix=partition,
         partition_name=partition_type,
         content_type=content_type,
@@ -50,18 +44,18 @@ def test_dynamo_repo_put(internal_timestamp):
         resource=MagicMock(),
     )
 
-    item_dict = fake.pydict()
-    item = ExtraModel(**item_dict)
-    content = PartitionedContent(partition_ids=partition_ids, content_ids=content_ids, item=item)
+    expiry = fake.date_time()
+    content = ExamplePartitionedContentFactory(expiry=expiry)
     repo.put(content)
 
     assert table.put_item.call_args[1] == {
         "Item": {
-            partition_key: f"{partition}#{partition_type}#{partition_ids[0]}",
-            sort_key: f"{content_type}#{content_ids[0]}",
+            partition_key: f"{partition}#{partition_type}#" + "#".join(content.partition_ids),
+            sort_key: f"{content_type}#" + "#".join(content.content_ids),
             "_object_version": 1,
             "_timestamp": now.isoformat(),
-            **clean_dict(item_dict),
+            "_ttl": int(expiry.timestamp()),
+            **clean_dict(content.item.dict()),
         }
     }
 
@@ -82,8 +76,8 @@ def test_dynamo_repo_put_batch(internal_timestamp):
     writer = MagicMock()
     table.batch_writer.return_value.__enter__.return_value = writer
 
-    repo = DynamoRepository[ExtraModel](
-        item_class=ExtraModel,
+    repo = DynamoRepository[Example](
+        item_class=Example,
         partition_prefix=partition,
         partition_name=partition_type,
         content_type=content_type,
@@ -93,17 +87,15 @@ def test_dynamo_repo_put_batch(internal_timestamp):
         table=table,
         resource=MagicMock(),
     )
-
-    item_dict1 = fake.pydict()
-    item_dict2 = fake.pydict()
-    contents = (
-        PartitionedContent(
-            partition_ids=partition_ids, content_ids=content_ids, item=ExtraModel(**item_dict1)
+    expiry = fake.date_time()
+    contents = [
+        ExamplePartitionedContentFactory(
+            partition_ids=partition_ids, content_ids=content_ids, expiry=expiry
         ),
-        PartitionedContent(
-            partition_ids=partition_ids, content_ids=content_ids, item=ExtraModel(**item_dict2)
+        ExamplePartitionedContentFactory(
+            partition_ids=partition_ids, content_ids=content_ids, expiry=expiry
         ),
-    )
+    ]
     repo.put_batch(contents)
 
     assert writer.put_item.call_args_list == [
@@ -111,11 +103,13 @@ def test_dynamo_repo_put_batch(internal_timestamp):
             (),
             {
                 "Item": {
-                    partition_key: f"{partition}#{partition_type}#{partition_ids[0]}",
-                    sort_key: f"{content_type}#{content_ids[0]}",
+                    partition_key: f"{partition}#{partition_type}#"
+                    + "#".join(contents[0].partition_ids),
+                    sort_key: f"{content_type}#" + "#".join(contents[0].content_ids),
                     "_object_version": 1,
                     "_timestamp": now.isoformat(),
-                    **clean_dict(item_dict1),
+                    "_ttl": int(expiry.timestamp()),
+                    **clean_dict(contents[0].item.dict()),
                 }
             },
         ),
@@ -123,11 +117,13 @@ def test_dynamo_repo_put_batch(internal_timestamp):
             (),
             {
                 "Item": {
-                    partition_key: f"{partition}#{partition_type}#{partition_ids[0]}",
-                    sort_key: f"{content_type}#{content_ids[0]}",
+                    partition_key: f"{partition}#{partition_type}#"
+                    + "#".join(contents[1].partition_ids),
+                    sort_key: f"{content_type}#" + "#".join(contents[1].content_ids),
                     "_object_version": 1,
                     "_timestamp": now.isoformat(),
-                    **clean_dict(item_dict2),
+                    "_ttl": int(expiry.timestamp()),
+                    **clean_dict(contents[1].item.dict()),
                 }
             },
         ),
@@ -219,8 +215,8 @@ def test_content_get_repo_no_items():
     table = MagicMock()
     table.get_item.return_value = {"Not_Items": []}
 
-    repo = DynamoRepository[ExtraModel](
-        item_class=ExtraModel,
+    repo = DynamoRepository[Example](
+        item_class=Example,
         partition_prefix=fake.bs(),
         partition_name=fake.bs(),
         content_type=fake.bs(),
@@ -381,6 +377,170 @@ def test_dynamo_repo_list():
     assert expression._values[1].expression_operator == "begins_with"
     assert expression._values[1]._values[0].name == sort_key
     assert expression._values[1]._values[1] == f"{content_type}#{content_id[0]}#{content_id[1]}"
+
+
+def test_dynamo_repo_list_last_evaluated_under_limit():
+    partition_prefix = fake.bs()
+    partition_name = fake.bs()
+    content_type = fake.bs()
+    partition_key = fake.bs()
+    sort_key = fake.bs()
+    table = MagicMock()
+    contents = ExamplePartitionedContentFactory.build_batch(4)
+    start_key = fake.bothify()
+    table.query.side_effect = [
+        {
+            "Items": [
+                example_content_to_db_item(
+                    partition_key, partition_prefix, partition_name, sort_key, content_type, content
+                )
+                for content in contents[:3]
+            ],
+            "LastEvaluatedKey": start_key,
+            "Count": 3,
+        },
+        {
+            "Items": [
+                example_content_to_db_item(
+                    partition_key, partition_prefix, partition_name, sort_key, content_type, content
+                )
+                for content in contents[3:4]
+            ],
+            "Count": 1,
+        },
+    ]
+
+    repo = DynamoRepository[Example](
+        item_class=Example,
+        partition_prefix=partition_prefix,
+        partition_name=partition_name,
+        content_type=content_type,
+        table_name=fake.bs(),
+        partition_key=partition_key,
+        sort_key=sort_key,
+        table=table,
+        resource=MagicMock(),
+    )
+    partition_id = [fake.bs(), fake.bs()]
+    content_id = [fake.bs(), fake.bs()]
+    ascending = random.choice((True, False))
+    limit = 5
+    actual = repo.list(partition_id, content_id, ascending, limit)
+
+    assert sorted(actual.contents) == sorted(contents)
+    assert len(table.query.call_args_list) == 2
+    _, kwargs2 = table.query.call_args_list[1]
+    assert kwargs2["ExclusiveStartKey"] == start_key
+
+
+def test_dynamo_repo_list_last_evaluated_over_limit():
+    partition_prefix = fake.bs()
+    partition_name = fake.bs()
+    content_type = fake.bs()
+    partition_key = fake.bs()
+    sort_key = fake.bs()
+    table = MagicMock()
+    contents = ExamplePartitionedContentFactory.build_batch(6)
+    start_key = fake.bothify()
+    table.query.side_effect = [
+        {
+            "Items": [
+                example_content_to_db_item(
+                    partition_key, partition_prefix, partition_name, sort_key, content_type, content
+                )
+                for content in contents[:3]
+            ],
+            "LastEvaluatedKey": start_key,
+            "Count": 3,
+        },
+        {
+            "Items": [
+                example_content_to_db_item(
+                    partition_key, partition_prefix, partition_name, sort_key, content_type, content
+                )
+                for content in contents[3:6]
+            ],
+            "Count": 3,
+        },
+    ]
+
+    repo = DynamoRepository[Example](
+        item_class=Example,
+        partition_prefix=partition_prefix,
+        partition_name=partition_name,
+        content_type=content_type,
+        table_name=fake.bs(),
+        partition_key=partition_key,
+        sort_key=sort_key,
+        table=table,
+        resource=MagicMock(),
+    )
+    partition_id = [fake.bs(), fake.bs()]
+    content_id = [fake.bs(), fake.bs()]
+    ascending = random.choice((True, False))
+    limit = 5
+    actual = repo.list(partition_id, content_id, ascending, limit)
+
+    assert sorted(actual.contents) == sorted(contents)
+    assert len(table.query.call_args_list) == 2
+    _, kwargs2 = table.query.call_args_list[1]
+    assert kwargs2["ExclusiveStartKey"] == start_key
+
+
+def test_dynamo_repo_list_last_evaluated_over_limit_after_evaluated_key():
+    partition_prefix = fake.bs()
+    partition_name = fake.bs()
+    content_type = fake.bs()
+    partition_key = fake.bs()
+    sort_key = fake.bs()
+    table = MagicMock()
+    contents = ExamplePartitionedContentFactory.build_batch(8)
+    start_key1 = fake.bothify()
+    start_key2 = fake.bothify()
+    table.query.side_effect = [
+        {
+            "Items": [
+                example_content_to_db_item(
+                    partition_key, partition_prefix, partition_name, sort_key, content_type, content
+                )
+                for content in contents[:3]
+            ],
+            "LastEvaluatedKey": start_key1,
+            "Count": 3,
+        },
+        {
+            "Items": [
+                example_content_to_db_item(
+                    partition_key, partition_prefix, partition_name, sort_key, content_type, content
+                )
+                for content in contents[3:6]
+            ],
+            "LastEvaluatedKey": start_key2,
+            "Count": 3,
+        },
+    ]
+
+    repo = DynamoRepository[Example](
+        item_class=Example,
+        partition_prefix=partition_prefix,
+        partition_name=partition_name,
+        content_type=content_type,
+        table_name=fake.bs(),
+        partition_key=partition_key,
+        sort_key=sort_key,
+        table=table,
+        resource=MagicMock(),
+    )
+    partition_id = [fake.bs(), fake.bs()]
+    content_id = [fake.bs(), fake.bs()]
+    ascending = random.choice((True, False))
+    limit = 5
+    actual = repo.list(partition_id, content_id, ascending, limit)
+
+    assert sorted(actual.contents) == sorted(contents[:6])
+    assert len(table.query.call_args_list) == 2
+    _, kwargs2 = table.query.call_args_list[1]
+    assert kwargs2["ExclusiveStartKey"] == start_key1
 
 
 def test_dynamo_repo_list_none_inputs():
@@ -743,14 +903,18 @@ def test_dynamo_repo_update(build_update_args):
 
 
 def test_dynamo_repo_delete():
-    partition = fake.bs()
+    partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
     table = MagicMock()
+    contents = ExamplePartitionedContentFactory.build_batch(11)
     items = [
-        ExtraModel(**{partition_key: fake.bs(), sort_key: fake.bs()}).dict() for _ in range(11)
+        example_content_to_db_item(
+            partition_key, partition_prefix, partition_name, sort_key, content_type, c
+        )
+        for c in contents
     ]
     table.query.return_value = {"Items": items, "Count": fake.pyint()}
     writer = MagicMock()
@@ -759,9 +923,9 @@ def test_dynamo_repo_delete():
     partition_id = [fake.bs(), fake.bs()]
     content_id = [fake.bs(), fake.bs()]
 
-    repo = DynamoRepository[ExtraModel](
+    repo = DynamoRepository[Example](
         item_class=FieldModel,
-        partition_prefix=partition,
+        partition_prefix=partition_prefix,
         partition_name=partition_name,
         content_type=content_type,
         table_name=fake.bs(),
@@ -779,7 +943,7 @@ def test_dynamo_repo_delete():
     assert expression._values[0]._values[0].name == partition_key
     assert (
         expression._values[0]._values[1]
-        == f"{partition}#{partition_name}#{partition_id[0]}#{partition_id[1]}"
+        == f"{partition_prefix}#{partition_name}#{partition_id[0]}#{partition_id[1]}"
     )
     assert expression._values[1].expression_operator == "begins_with"
     assert expression._values[1]._values[0].name == sort_key
@@ -799,22 +963,26 @@ def test_dynamo_repo_delete():
 
 
 def test_dynamo_repo_delete_none_inputs():
-    partition = fake.bs()
+    partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
     table = MagicMock()
+    contents = ExamplePartitionedContentFactory.build_batch(11)
     items = [
-        ExtraModel(**{partition_key: fake.bs(), sort_key: fake.bs()}).dict() for _ in range(11)
+        example_content_to_db_item(
+            partition_key, partition_prefix, partition_name, sort_key, content_type, c
+        )
+        for c in contents
     ]
     table.query.return_value = {"Items": items, "Count": fake.pyint()}
     writer = MagicMock()
     table.batch_writer.return_value.__enter__.return_value = writer
 
-    repo = DynamoRepository[ExtraModel](
+    repo = DynamoRepository[Example](
         item_class=FieldModel,
-        partition_prefix=partition,
+        partition_prefix=partition_prefix,
         partition_name=partition_name,
         content_type=content_type,
         table_name=fake.bs(),
@@ -830,7 +998,7 @@ def test_dynamo_repo_delete_none_inputs():
     assert expression.expression_operator == "AND"
     assert expression._values[0].expression_operator == "="
     assert expression._values[0]._values[0].name == partition_key
-    assert expression._values[0]._values[1] == f"{partition}#{partition_name}#"
+    assert expression._values[0]._values[1] == f"{partition_prefix}#{partition_name}#"
     assert expression._values[1].expression_operator == "begins_with"
     assert expression._values[1]._values[0].name == sort_key
     assert expression._values[1]._values[1] == f"{content_type}#"

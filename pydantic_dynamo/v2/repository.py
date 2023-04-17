@@ -13,17 +13,16 @@ from pydantic_dynamo.constants import (
     FILTER_EXPRESSION,
     LAST_EVALUATED_KEY,
 )
-from pydantic_dynamo.exceptions import RequestObjectStateError
 from pydantic_dynamo.models import ObjT, PartitionedContent, UpdateCommand, FilterCommand
 from pydantic_dynamo.utils import (
     clean_dict,
     internal_timestamp,
     validate_command_for_schema,
-    get_error_code,
     chunks,
     validate_filters_for_schema,
     build_filter_expression,
     build_update_args_for_command,
+    execute_update_item,
 )
 from pydantic_dynamo.v2.models import AbstractRepository, GetResponse, BatchResponse, QueryResponse
 
@@ -113,24 +112,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         if require_exists:
             build_kwargs["key"] = key
         args = build_update_args_for_command(**build_kwargs)  # type: ignore
-        try:
-            update_kwargs = {
-                "Key": key,
-                "UpdateExpression": args.update_expression,
-                "ExpressionAttributeNames": args.attribute_names,
-                "ExpressionAttributeValues": args.attribute_values,
-            }
-            if args.condition_expression:
-                update_kwargs["ConditionExpression"] = args.condition_expression
-            self._table.update_item(**update_kwargs)
-            logger.info("Finished updating item")
-        except Exception as ex:
-            code = get_error_code(ex)
-            if code == "ConditionalCheckFailedException":
-                raise RequestObjectStateError(
-                    f"Object existence or version condition failed for: {str(key)}"
-                ) from ex
-            raise
+        execute_update_item(self._table, key, args)
 
     def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]

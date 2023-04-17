@@ -222,7 +222,11 @@ def test_clean_dict():
     assert cleaned["nested"]["nested_list_of_time"] == [
         t.isoformat() for t in og["nested"]["nested_list_of_time"]
     ]
-    assert cleaned["nested"]["nested_composed"] == _example_to_expected(nested_composed)
+    nested_composed_expected = _example_to_expected(nested_composed)
+    assert sorted(cleaned["nested"]["nested_composed"].pop("set_field")) == sorted(
+        nested_composed_expected.pop("set_field")
+    )
+    assert cleaned["nested"]["nested_composed"] == nested_composed_expected
     assert cleaned["dict"].keys() == og["dict"].keys()
     assert cleaned["enum"] == og["enum"].value
     assert len(cleaned["list_of_dict"]) == len(og["list_of_dict"])
@@ -343,6 +347,7 @@ def test_build_update_item_arguments(utc_now):
         "#att18": "some_list",
         "#att19": "some_list_2",
     }
+    assert sorted(update_args.attribute_values.pop(":val5")) == sorted(list(some_example.set_field))
     assert update_args.attribute_values == {
         ":zero": 0,
         ":empty_list": [],
@@ -351,7 +356,6 @@ def test_build_update_item_arguments(utc_now):
         ":val2": {k: v.dict() for k, v in some_example.dict_field.items()},
         ":val3": some_example.model_field.dict(),
         ":val4": some_example.list_field,
-        ":val5": list(some_example.set_field),
         ":val6": some_example.date_field.isoformat(),
         ":val7": some_example.time_field.isoformat(),
         ":val8": some_example.datetime_field.isoformat(),
