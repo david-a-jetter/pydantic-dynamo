@@ -45,10 +45,8 @@ def task_test():
             CmdAction("poetry run mypy pydantic_dynamo tests"),
             CmdAction("poetry run flake8 pydantic_dynamo --ignore=E203,W503"),
             CmdAction("poetry run flake8 tests --ignore=E203,W503"),
-            CmdAction(
-                "poetry run python -m pytest tests/test_integration "
-                "--cov=pydantic_dynamo --cov-report xml:integration-coverage.xml"
-            ),
+            CmdAction('poetry run python -m pytest tests/test_integration -k "not long_running"'),
+            CmdAction('poetry run python -m pytest tests/test_integration -k "long_running"'),
         ],
         "verbosity": 2,
     }

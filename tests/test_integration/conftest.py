@@ -6,6 +6,7 @@ from aioboto3 import Session
 from testcontainers.core.container import DockerContainer
 
 from pydantic_dynamo.v2.repository import DynamoRepository
+from pydantic_dynamo.v2.sync_repository import SyncDynamoRepository
 from tests.models import Example
 
 PARTITION_KEY = "_table_item_id"
@@ -65,3 +66,8 @@ async def v2_example_repo(local_db_resource):
         table=await resource.Table(table_name),
         resource=resource,
     )
+
+
+@pytest.fixture
+def sync_v2_example_repo(v2_example_repo):
+    return SyncDynamoRepository(async_repo=v2_example_repo)
