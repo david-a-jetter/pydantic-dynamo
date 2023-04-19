@@ -1,4 +1,5 @@
 import asyncio
+from asyncio import AbstractEventLoop
 from typing import Optional, Sequence, Iterable, Tuple, AsyncIterable, TypeVar
 
 from pydantic_dynamo.models import ObjT, FilterCommand, UpdateCommand, PartitionedContent
@@ -87,18 +88,20 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
         )
 
 
-def iter_over_async(async_iter: AsyncIterable[Output], loop) -> Iterable[Output]:
-    ait = async_iter.__aiter__()
+def iter_over_async(
+    async_iterable: AsyncIterable[Output], loop: AbstractEventLoop
+) -> Iterable[Output]:
+    async_iterator = async_iterable.__aiter__()
 
     async def get_next():
         try:
-            obj = await ait.__anext__()
-            return False, obj
+            next_obj = await async_iterator.__anext__()
+            return False, next_obj
         except StopAsyncIteration:
             return True, None
 
     while True:
-        done, obj = loop.run_until_complete(get_next())
+        done, next_obj = loop.run_until_complete(get_next())
         if done:
             break
-        yield obj
+        yield next_obj

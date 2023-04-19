@@ -43,6 +43,26 @@ class DynamoRepository(AbstractRepository[ObjT]):
         table,
         resource,
     ):
+        """
+
+        :param item_class: pydantic model class reference representing a single
+            database record. This should match ObjT
+        :param partition_prefix: first part of the concatenated value used in the
+            partition key value.
+            Shared amongst all records saved and read by this repository.
+        :param partition_name: second part of the concatenated value used in the
+            partition key value.
+            Shared amongst all records saved and read by this repository.
+        :param content_type: first part of the concatenated value used in the sort key value.
+            Shared amongst all records saved and read by this repository.
+        :param table_name: the region-specific name of the DynamoDB table
+        :param partition_key: the name of the attribute defined as the table's partition key
+        :param sort_key: the name of the attribute defined as the table's sort key
+        :param table: instance of the Table service object
+            from `await resource.Table(table_name)`
+        :param resource: instance of the resource service object
+            from `async with aioboto3.session.Session().resource(**kwargs)`
+        """
         self._item_class = item_class
         self._item_schema = self._item_class.schema()
         self._partition_prefix = partition_prefix
