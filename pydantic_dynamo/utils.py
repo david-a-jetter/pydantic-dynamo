@@ -44,7 +44,7 @@ class UpdateItemArguments(BaseModel):
     attribute_values: Dict[str, Any]
 
 
-def execute_update_item(table, key: Dict, args: UpdateItemArguments) -> None:
+async def execute_update_item(table, key: Dict, args: UpdateItemArguments) -> None:
     try:
         update_kwargs = {
             "Key": key,
@@ -54,7 +54,7 @@ def execute_update_item(table, key: Dict, args: UpdateItemArguments) -> None:
         }
         if args.condition_expression:
             update_kwargs["ConditionExpression"] = args.condition_expression
-        table.update_item(**update_kwargs)
+        await table.update_item(**update_kwargs)
     except Exception as ex:
         code = get_error_code(ex)
         if code == "ConditionalCheckFailedException":

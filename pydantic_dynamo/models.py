@@ -29,16 +29,16 @@ class PartitionedContent(GenericModel, Generic[ObjT]):
     expiry: Optional[datetime]
 
     def __lt__(self, other):
-        return (self.partition_ids + self.content_ids) < (self.partition_ids + self.content_ids)
+        return (self.partition_ids + self.content_ids) < (other.partition_ids + other.content_ids)
 
     def __gt__(self, other):
-        return (self.partition_ids + self.content_ids) > (self.partition_ids + self.content_ids)
+        return (self.partition_ids + self.content_ids) > (other.partition_ids + other.content_ids)
 
     def __le__(self, other):
-        return (self.partition_ids + self.content_ids) <= (self.partition_ids + self.content_ids)
+        return (self.partition_ids + self.content_ids) <= (other.partition_ids + other.content_ids)
 
     def __ge__(self, other):
-        return (self.partition_ids + self.content_ids) >= (self.partition_ids + self.content_ids)
+        return (self.partition_ids + self.content_ids) >= (other.partition_ids + other.content_ids)
 
 
 class UpdateCommand(BaseModel):

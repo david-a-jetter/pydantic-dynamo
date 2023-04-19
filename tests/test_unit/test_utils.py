@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from datetime import datetime, timezone, date, time
 from typing import Dict
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 from faker import Faker
@@ -114,12 +114,12 @@ def test_chunks_gt_size_partial():
     assert len(chunked[2]) == 5
 
 
-def test_execute_update_item():
-    table = MagicMock()
+async def test_execute_update_item():
+    table = AsyncMock()
     key = {fake.bothify(): fake.bothify() for _ in range(2)}
     args = UpdateItemArgumentsFactory()
 
-    execute_update_item(table, key, args)
+    await execute_update_item(table, key, args)
 
     assert table.update_item.call_args == (
         (),
@@ -133,12 +133,12 @@ def test_execute_update_item():
     )
 
 
-def test_execute_update_item_condition_none():
-    table = MagicMock()
+async def test_execute_update_item_condition_none():
+    table = AsyncMock()
     key = {fake.bothify(): fake.bothify() for _ in range(2)}
     args = UpdateItemArgumentsFactory(condition_expression=None)
 
-    execute_update_item(table, key, args)
+    await execute_update_item(table, key, args)
 
     assert table.update_item.call_args == (
         (),
@@ -152,7 +152,7 @@ def test_execute_update_item_condition_none():
 
 
 @patch("pydantic_dynamo.utils.get_error_code")
-def test_execute_update_conditional_check_failed(get_error_code):
+async def test_execute_update_conditional_check_failed(get_error_code):
     error_code = "ConditionalCheckFailedException"
     get_error_code.return_value = error_code
     table = MagicMock()
@@ -162,14 +162,14 @@ def test_execute_update_conditional_check_failed(get_error_code):
     db_ex = Exception(fake.bs())
     table.update_item.side_effect = db_ex
     with pytest.raises(RequestObjectStateError) as ex:
-        execute_update_item(table, key, args)
+        await execute_update_item(table, key, args)
 
     assert str(key) in str(ex)
     assert get_error_code.call_args == ((db_ex,), {})
 
 
 @patch("pydantic_dynamo.utils.get_error_code")
-def test_execute_update_some_other_exception(get_error_code):
+async def test_execute_update_some_other_exception(get_error_code):
     error_code = fake.bs()
     get_error_code.return_value = error_code
     table = MagicMock()
@@ -179,7 +179,7 @@ def test_execute_update_some_other_exception(get_error_code):
     db_ex = Exception(fake.bs())
     table.update_item.side_effect = db_ex
     with pytest.raises(Exception) as ex:
-        execute_update_item(table, key, args)
+        await execute_update_item(table, key, args)
 
     assert ex.value == db_ex
 

@@ -1,11 +1,13 @@
+from uuid import uuid4
+
 import pytest
-from boto3 import Session
+import pytest_asyncio
+from aioboto3 import Session
 from testcontainers.core.container import DockerContainer
 
 from pydantic_dynamo.v2.repository import DynamoRepository
 from tests.models import Example
 
-TABLE_NAME = "integration-tests"
 PARTITION_KEY = "_table_item_id"
 SORT_KEY = "_table_content_id"
 
@@ -18,8 +20,8 @@ def local_db():
         yield local_db
 
 
-@pytest.fixture
-def local_db_resource(local_db):
+@pytest_asyncio.fixture
+async def local_db_resource(local_db):
     session = Session()
 
     boto3_kwargs = {
@@ -29,36 +31,37 @@ def local_db_resource(local_db):
         "aws_access_key_id": "key",
         "aws_secret_access_key": "secret",
     }
-    resource = session.resource(**boto3_kwargs)
+    table_name = str(uuid4())
+    async with session.resource(**boto3_kwargs) as resource:
+        await resource.create_table(
+            TableName=table_name,
+            KeySchema=[
+                {"AttributeName": PARTITION_KEY, "KeyType": "HASH"},
+                {"AttributeName": SORT_KEY, "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": PARTITION_KEY, "AttributeType": "S"},
+                {"AttributeName": SORT_KEY, "AttributeType": "S"},
+            ],
+            ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 10},
+        )
 
-    resource.create_table(
-        TableName=TABLE_NAME,
-        KeySchema=[
-            {"AttributeName": PARTITION_KEY, "KeyType": "HASH"},
-            {"AttributeName": SORT_KEY, "KeyType": "RANGE"},
-        ],
-        AttributeDefinitions=[
-            {"AttributeName": PARTITION_KEY, "AttributeType": "S"},
-            {"AttributeName": SORT_KEY, "AttributeType": "S"},
-        ],
-        ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 10},
-    )
-
-    yield resource
-
-    resource.Table(TABLE_NAME).delete()
+        yield resource, table_name
+        table = await resource.Table(table_name)
+        await table.delete()
 
 
-@pytest.fixture
-def v2_example_repo(local_db_resource):
+@pytest_asyncio.fixture
+async def v2_example_repo(local_db_resource):
+    resource, table_name = local_db_resource
     return DynamoRepository(
         item_class=Example,
         partition_prefix="test",
         partition_name="integration",
         content_type="example",
-        table_name=TABLE_NAME,
+        table_name=table_name,
         partition_key=PARTITION_KEY,
         sort_key=SORT_KEY,
-        table=local_db_resource.Table(TABLE_NAME),
-        resource=local_db_resource,
+        table=await resource.Table(table_name),
+        resource=resource,
     )

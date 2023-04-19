@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Type, Dict, List, Any, Iterable, Union, Optional, Sequence, Tuple
+from typing import Type, Dict, List, Any, Iterable, Union, Optional, Sequence, Tuple, AsyncIterable
 
 from boto3.dynamodb.conditions import Key
 
@@ -24,7 +24,7 @@ from pydantic_dynamo.utils import (
     build_update_args_for_command,
     execute_update_item,
 )
-from pydantic_dynamo.v2.models import AbstractRepository, GetResponse, BatchResponse, QueryResponse
+from pydantic_dynamo.v2.models import AbstractRepository, GetResponse, BatchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -62,26 +62,26 @@ class DynamoRepository(AbstractRepository[ObjT]):
             "content_prefix": self._content_id(EMPTY_LIST),
         }
 
-    def put(self, content: PartitionedContent[ObjT]) -> None:
+    async def put(self, content: PartitionedContent[ObjT]) -> None:
         log_context: Dict[str, Any] = {
             "partition_id": content.partition_ids,
             "content_id": content.content_ids,
             **self.context,
         }
         logger.info("Putting single content", extra=log_context)
-        self._put_content(self._table, content)
+        await self._put_content(self._table, content)
         logger.info("Put single content", extra=log_context)
 
-    def put_batch(self, batch: Iterable[PartitionedContent[ObjT]]) -> None:
+    async def put_batch(self, batch: Iterable[PartitionedContent[ObjT]]) -> None:
         logger.info("Putting batch content", extra=self.context)
         count = 0
-        with self._table.batch_writer() as writer:
+        async with self._table.batch_writer() as writer:
             for content in batch:
-                self._put_content(writer, content)
+                await self._put_content(writer, content)
                 count += 1
         logger.info("Finished putting batch content", extra={"count": count, **self.context})
 
-    def _put_content(self, table, content: PartitionedContent[ObjT]) -> None:
+    async def _put_content(self, table, content: PartitionedContent[ObjT]) -> None:
         item_dict = clean_dict(content.item.dict())
         item_dict[INTERNAL_OBJECT_VERSION] = content.current_version
         item_dict.update(**internal_timestamp())
@@ -92,9 +92,9 @@ class DynamoRepository(AbstractRepository[ObjT]):
         }
         if expiry := content.expiry:
             put_item[INTERNAL_TTL] = int(expiry.timestamp())
-        table.put_item(Item=put_item)
+        await table.put_item(Item=put_item)
 
-    def update(
+    async def update(
         self,
         partition_id: Optional[Sequence[str]],
         content_id: Optional[Sequence[str]],
@@ -112,9 +112,9 @@ class DynamoRepository(AbstractRepository[ObjT]):
         if require_exists:
             build_kwargs["key"] = key
         args = build_update_args_for_command(**build_kwargs)  # type: ignore
-        execute_update_item(self._table, key, args)
+        await execute_update_item(self._table, key, args)
 
-    def get(
+    async def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
     ) -> GetResponse:
         if partition_id is None:
@@ -127,7 +127,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
             **self.context,
         }
         logger.info("Getting item from table by key", extra=log_context)
-        response = self._table.get_item(
+        response = await self._table.get_item(
             Key={
                 self._partition_key: self._partition_id(partition_id),
                 self._sort_key: self._content_id(content_id),
@@ -142,11 +142,10 @@ class DynamoRepository(AbstractRepository[ObjT]):
             content = None
         return GetResponse(content=content)
 
-    def get_batch(
+    async def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> BatchResponse:
-        records: List[PartitionedContent[ObjT]] = []
+    ) -> AsyncIterable[BatchResponse]:
         batch_number = 0
         for request_id_batch in chunks(request_ids, size=100):
             batch_number += 1
@@ -164,7 +163,15 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 }
                 for partition_id, content_id in request_id_batch
             ]
-            batch_response: Dict[str, Any] = self._extend_batch(batch_keys, records)
+            batch_response = await self._resource.batch_get_item(
+                RequestItems={self._table_name: {"Keys": batch_keys}}
+            )
+            yield BatchResponse(
+                contents=(
+                    self._db_item_to_object(db_item)
+                    for db_item in batch_response["Responses"].get(self._table_name, [])
+                )
+            )
             while unprocessed_keys := batch_response.get("UnprocessedKeys"):
                 logger.info(
                     "Getting unprocessed keys",
@@ -173,31 +180,24 @@ class DynamoRepository(AbstractRepository[ObjT]):
                         "batch_size": len(unprocessed_keys),
                     },
                 )
-                batch_response = self._extend_batch(unprocessed_keys, records)
-        return BatchResponse(contents=records)
+                batch_response = await self._resource.batch_get_item(
+                    RequestItems={self._table_name: {"Keys": unprocessed_keys}}
+                )
+                yield BatchResponse(
+                    contents=(
+                        self._db_item_to_object(db_item)
+                        for db_item in batch_response["Responses"].get(self._table_name, [])
+                    )
+                )
 
-    def _extend_batch(
-        self, request_keys: List[Dict[str, str]], records: List[PartitionedContent[ObjT]]
-    ):
-        batch_response = self._resource.batch_get_item(
-            RequestItems={self._table_name: {"Keys": request_keys}}
-        )
-        records.extend(
-            (
-                self._db_item_to_object(db_item)
-                for db_item in batch_response["Responses"].get(self._table_name, [])
-            )
-        )
-        return batch_response
-
-    def list(
+    async def list(
         self,
         partition_id: Optional[Sequence[str]],
         content_prefix: Optional[Sequence[str]],
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> QueryResponse:
+    ) -> AsyncIterable[BatchResponse]:
         if partition_id is None:
             partition_id = EMPTY_LIST
         if content_prefix is None:
@@ -207,13 +207,14 @@ class DynamoRepository(AbstractRepository[ObjT]):
             self._sort_key
         ).begins_with(self._content_id(content_prefix))
         logger.info("Starting query for content with prefix query")
-        items = self._query_all_data(condition, sort_ascending, limit, filters)
-        response: QueryResponse = QueryResponse(
-            contents=(self._db_item_to_object(db_item) for db_item in items)
-        )
-        return response
+        contents = [
+            self._db_item_to_object(db_item)
+            async for items in self._query_all_data(condition, sort_ascending, limit, filters)
+            for db_item in items
+        ]
+        yield BatchResponse(contents=contents)
 
-    def list_between(
+    async def list_between(
         self,
         partition_id: Optional[Sequence[str]],
         content_start: Optional[Sequence[str]],
@@ -221,7 +222,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> QueryResponse:
+    ) -> AsyncIterable[BatchResponse]:
         log_context = {
             "partition_id": partition_id,
             "content_start": content_start,
@@ -240,7 +241,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 "Content start and end filters are equal. Deferring to list",
                 extra=log_context,
             )
-            return self.list(partition_id, content_start)
+            async for response in self.list(partition_id, content_start):
+                yield response
         else:
             partition_id = self._partition_id(partition_id)
             sort_start = self._content_id(content_start)
@@ -257,11 +259,12 @@ class DynamoRepository(AbstractRepository[ObjT]):
                     **log_context,
                 },
             )
-            items = self._query_all_data(condition, sort_ascending, limit, filters)
-            response: QueryResponse = QueryResponse(
-                contents=(self._db_item_to_object(db_item) for db_item in items)
-            )
-            return response
+            contents = [
+                self._db_item_to_object(db_item)
+                async for items in self._query_all_data(condition, sort_ascending, limit, filters)
+                for db_item in items
+            ]
+            yield BatchResponse(contents=contents)
 
     def _db_item_to_object(self, db_item: Dict[str, Any]) -> PartitionedContent[ObjT]:
         expiry: Optional[datetime] = None
@@ -279,7 +282,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
             expiry=expiry,
         )
 
-    def delete(
+    async def delete(
         self,
         partition_id: Optional[Sequence[str]],
         content_prefix: Optional[Sequence[str]],
@@ -298,15 +301,18 @@ class DynamoRepository(AbstractRepository[ObjT]):
             self._sort_key
         ).begins_with(self._content_id(content_prefix))
         logger.info("Starting query for content to delete with prefix query", extra=log_context)
-        items = self._query_all_data(condition, select_fields=(self._partition_key, self._sort_key))
-        with self._table.batch_writer() as writer:
-            for item in items:
-                writer.delete_item(
-                    Key={
-                        self._partition_key: item[self._partition_key],
-                        self._sort_key: item[self._sort_key],
-                    }
-                )
+        responses = self._query_all_data(
+            condition, select_fields=(self._partition_key, self._sort_key)
+        )
+        async with self._table.batch_writer() as writer:
+            async for items in responses:
+                for item in items:
+                    await writer.delete_item(
+                        Key={
+                            self._partition_key: item[self._partition_key],
+                            self._sort_key: item[self._sort_key],
+                        }
+                    )
         logger.info("Finished deleting content from prefix query", extra=log_context)
 
     def _partition_id(self, partition_ids: Optional[Union[str, Sequence[str]]]) -> str:
@@ -325,14 +331,14 @@ class DynamoRepository(AbstractRepository[ObjT]):
         else:
             return f"{self._content_type}#{'#'.join(content_ids)}"
 
-    def _query_all_data(
+    async def _query_all_data(
         self,
         key_condition_expression: Key,
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
         select_fields: Optional[Sequence[str]] = None,
-    ) -> Iterable[Dict]:
+    ) -> AsyncIterable[List[Dict]]:
         query_kwargs = {
             "KeyConditionExpression": key_condition_expression,
             "ScanIndexForward": sort_ascending,
@@ -355,11 +361,11 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 }
             )
 
-        response = self._table.query(**query_kwargs)
+        response = await self._table.query(**query_kwargs)
         total_count = response["Count"]
         items = response.get("Items", [])
 
-        yield from items
+        yield items
 
         while last_evaluated_key := response.get(LAST_EVALUATED_KEY):
             # TODO: Add tests for limit
@@ -372,7 +378,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 },
             )
             query_kwargs["ExclusiveStartKey"] = last_evaluated_key
-            response = self._table.query(**query_kwargs)
+            response = await self._table.query(**query_kwargs)
             total_count += response["Count"]
             items = response.get("Items", [])
-            yield from items
+            yield items

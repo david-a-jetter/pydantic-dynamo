@@ -1,5 +1,5 @@
 from abc import abstractmethod, ABC
-from typing import Generic, Optional, List, Iterable, Sequence, Tuple
+from typing import Generic, Optional, Iterable, Sequence, Tuple, AsyncIterable
 
 from pydantic.generics import GenericModel
 
@@ -11,16 +11,12 @@ class GetResponse(GenericModel, Generic[ObjT]):
 
 
 class BatchResponse(GenericModel, Generic[ObjT]):
-    contents: List[PartitionedContent[ObjT]]
-
-
-class QueryResponse(GenericModel, Generic[ObjT]):
     contents: Iterable[PartitionedContent[ObjT]]
 
 
 class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
     @abstractmethod
-    def get(
+    async def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
     ) -> GetResponse:
         pass
@@ -29,7 +25,7 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> BatchResponse:
+    ) -> AsyncIterable[BatchResponse]:
         pass
 
     @abstractmethod
@@ -40,7 +36,7 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> QueryResponse:
+    ) -> AsyncIterable[BatchResponse]:
         pass
 
     @abstractmethod
@@ -52,21 +48,21 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> QueryResponse:
+    ) -> AsyncIterable[BatchResponse]:
         pass
 
 
 class AbstractRepository(ReadOnlyAbstractRepository[ObjT], ABC):
     @abstractmethod
-    def put(self, content: PartitionedContent[ObjT]) -> None:
+    async def put(self, content: PartitionedContent[ObjT]) -> None:
         pass
 
     @abstractmethod
-    def put_batch(self, content: Iterable[PartitionedContent[ObjT]]) -> None:
+    async def put_batch(self, content: Iterable[PartitionedContent[ObjT]]) -> None:
         pass
 
     @abstractmethod
-    def update(
+    async def update(
         self,
         partition_id: Optional[Sequence[str]],
         content_id: Optional[Sequence[str]],
@@ -76,7 +72,7 @@ class AbstractRepository(ReadOnlyAbstractRepository[ObjT], ABC):
         pass
 
     @abstractmethod
-    def delete(
+    async def delete(
         self,
         partition_id: Optional[Sequence[str]],
         content_prefix: Optional[Sequence[str]],

@@ -1,6 +1,7 @@
+import asyncio
 import random
 from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from faker import Faker
 
@@ -15,13 +16,13 @@ from tests.factories import (
     ExamplePartitionedContentFactory,
     example_content_to_db_item,
 )
-from pydantic_dynamo.v2.models import GetResponse, BatchResponse
+from pydantic_dynamo.v2.models import GetResponse
 
 fake = Faker()
 
 
 @patch("pydantic_dynamo.v2.repository.internal_timestamp")
-def test_dynamo_repo_put(internal_timestamp):
+async def test_dynamo_repo_put(internal_timestamp):
     now = datetime.now(tz=timezone.utc)
     internal_timestamp.return_value = {"_timestamp": now.isoformat()}
 
@@ -30,7 +31,7 @@ def test_dynamo_repo_put(internal_timestamp):
     partition_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
 
     repo = DynamoRepository[Example](
         item_class=Example,
@@ -46,7 +47,7 @@ def test_dynamo_repo_put(internal_timestamp):
 
     expiry = fake.date_time()
     content = ExamplePartitionedContentFactory(expiry=expiry)
-    repo.put(content)
+    await repo.put(content)
 
     assert table.put_item.call_args[1] == {
         "Item": {
@@ -61,7 +62,7 @@ def test_dynamo_repo_put(internal_timestamp):
 
 
 @patch("pydantic_dynamo.v2.repository.internal_timestamp")
-def test_dynamo_repo_put_batch(internal_timestamp):
+async def test_dynamo_repo_put_batch(internal_timestamp):
     now = datetime.now(tz=timezone.utc)
     internal_timestamp.return_value = {"_timestamp": now.isoformat()}
 
@@ -73,8 +74,8 @@ def test_dynamo_repo_put_batch(internal_timestamp):
     partition_key = fake.bs()
     sort_key = fake.bs()
     table = MagicMock()
-    writer = MagicMock()
-    table.batch_writer.return_value.__enter__.return_value = writer
+    writer = AsyncMock()
+    table.batch_writer.return_value.__aenter__.return_value = writer
 
     repo = DynamoRepository[Example](
         item_class=Example,
@@ -96,7 +97,7 @@ def test_dynamo_repo_put_batch(internal_timestamp):
             partition_ids=partition_ids, content_ids=content_ids, expiry=expiry
         ),
     ]
-    repo.put_batch(contents)
+    await repo.put_batch(contents)
 
     assert writer.put_item.call_args_list == [
         (
@@ -130,11 +131,11 @@ def test_dynamo_repo_put_batch(internal_timestamp):
     ]
 
 
-def test_dynamo_repo_get():
+async def test_dynamo_repo_get():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
 
     partition_id = [fake.bs()]
     content_id = [fake.bs(), fake.bs()]
@@ -158,7 +159,7 @@ def test_dynamo_repo_get():
         table=table,
         resource=MagicMock(),
     )
-    actual = repo.get(partition_id, content_id)
+    actual = await repo.get(partition_id, content_id)
 
     assert actual == GetResponse(content=content)
     assert table.get_item.call_args == (
@@ -172,14 +173,14 @@ def test_dynamo_repo_get():
     )
 
 
-def test_dynamo_repo_get_none_inputs():
+async def test_dynamo_repo_get_none_inputs():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
     content = ExamplePartitionedContentFactory()
-    table = MagicMock()
+    table = AsyncMock()
     table.get_item.return_value = {
         "Item": example_content_to_db_item(
             partition_key, partition_prefix, partition_name, sort_key, content_type, content
@@ -197,7 +198,7 @@ def test_dynamo_repo_get_none_inputs():
         table=table,
         resource=MagicMock(),
     )
-    actual = repo.get(None, None)
+    actual = await repo.get(None, None)
 
     assert actual == GetResponse(content=content)
     assert table.get_item.call_args == (
@@ -211,8 +212,8 @@ def test_dynamo_repo_get_none_inputs():
     )
 
 
-def test_content_get_repo_no_items():
-    table = MagicMock()
+async def test_content_get_repo_no_items():
+    table = AsyncMock()
     table.get_item.return_value = {"Not_Items": []}
 
     repo = DynamoRepository[Example](
@@ -226,19 +227,19 @@ def test_content_get_repo_no_items():
         table=table,
         resource=MagicMock(),
     )
-    actual = repo.get(fake.bs(), fake.bs())
+    actual = await repo.get(fake.bs(), fake.bs())
 
     assert actual == GetResponse(content=None)
 
 
-def test_dynamo_repo_get_batch():
+async def test_dynamo_repo_get_batch():
     partition_prefix = fake.bothify()
     partition_name = fake.bothify()
     content_type = fake.bothify()
     table_name = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    resource = MagicMock()
+    resource = AsyncMock()
     items = [
         example_content_to_db_item(
             partition_key,
@@ -276,16 +277,16 @@ def test_dynamo_repo_get_batch():
 
     # Max key count for each request is 100
     request_ids = [([fake.bothify()], [fake.bothify()]) for _ in range(120)]
-    actual = repo.get_batch(request_ids)
+    actual = [
+        content async for response in repo.get_batch(request_ids) for content in response.contents
+    ]
 
-    expected = BatchResponse(
-        contents=[
-            PartitionedContent[Example](
-                partition_ids=[str(i)], content_ids=[str(i)], item=Example(**item)
-            )
-            for i, item in enumerate(items)
-        ]
-    )
+    expected = [
+        PartitionedContent[Example](
+            partition_ids=[str(i)], content_ids=[str(i)], item=Example(**item)
+        )
+        for i, item in enumerate(items)
+    ]
 
     assert actual == expected
     assert resource.batch_get_item.call_args_list == [
@@ -325,13 +326,13 @@ def test_dynamo_repo_get_batch():
     ]
 
 
-def test_dynamo_repo_list():
+async def test_dynamo_repo_list():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -359,9 +360,13 @@ def test_dynamo_repo_list():
     )
     ascending = random.choice((True, False))
     limit = fake.pyint()
-    actual = repo.list(partition_id, content_id, ascending, limit)
+    actual = [
+        content
+        async for response in repo.list(partition_id, content_id, ascending, limit)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     assert kwargs["ScanIndexForward"] == ascending
@@ -379,13 +384,13 @@ def test_dynamo_repo_list():
     assert expression._values[1]._values[1] == f"{content_type}#{content_id[0]}#{content_id[1]}"
 
 
-def test_dynamo_repo_list_last_evaluated_under_limit():
+async def test_dynamo_repo_list_last_evaluated_under_limit():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(4)
     start_key = fake.bothify()
     table.query.side_effect = [
@@ -425,21 +430,25 @@ def test_dynamo_repo_list_last_evaluated_under_limit():
     content_id = [fake.bs(), fake.bs()]
     ascending = random.choice((True, False))
     limit = 5
-    actual = repo.list(partition_id, content_id, ascending, limit)
+    actual = [
+        content
+        async for response in repo.list(partition_id, content_id, ascending, limit)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
     assert len(table.query.call_args_list) == 2
     _, kwargs2 = table.query.call_args_list[1]
     assert kwargs2["ExclusiveStartKey"] == start_key
 
 
-def test_dynamo_repo_list_last_evaluated_over_limit():
+async def test_dynamo_repo_list_last_evaluated_over_limit():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(6)
     start_key = fake.bothify()
     table.query.side_effect = [
@@ -479,21 +488,25 @@ def test_dynamo_repo_list_last_evaluated_over_limit():
     content_id = [fake.bs(), fake.bs()]
     ascending = random.choice((True, False))
     limit = 5
-    actual = repo.list(partition_id, content_id, ascending, limit)
+    actual = [
+        content
+        async for response in repo.list(partition_id, content_id, ascending, limit)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
     assert len(table.query.call_args_list) == 2
     _, kwargs2 = table.query.call_args_list[1]
     assert kwargs2["ExclusiveStartKey"] == start_key
 
 
-def test_dynamo_repo_list_last_evaluated_over_limit_after_evaluated_key():
+async def test_dynamo_repo_list_last_evaluated_over_limit_after_evaluated_key():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(8)
     start_key1 = fake.bothify()
     start_key2 = fake.bothify()
@@ -535,21 +548,25 @@ def test_dynamo_repo_list_last_evaluated_over_limit_after_evaluated_key():
     content_id = [fake.bs(), fake.bs()]
     ascending = random.choice((True, False))
     limit = 5
-    actual = repo.list(partition_id, content_id, ascending, limit)
+    actual = [
+        content
+        async for response in repo.list(partition_id, content_id, ascending, limit)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents[:6])
+    assert sorted(actual) == sorted(contents[:6])
     assert len(table.query.call_args_list) == 2
     _, kwargs2 = table.query.call_args_list[1]
     assert kwargs2["ExclusiveStartKey"] == start_key1
 
 
-def test_dynamo_repo_list_none_inputs():
+async def test_dynamo_repo_list_none_inputs():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -574,9 +591,13 @@ def test_dynamo_repo_list_none_inputs():
     )
     ascending = random.choice((True, False))
     limit = fake.pyint()
-    actual = repo.list(None, None, ascending, limit)
+    actual = [
+        content
+        async for response in repo.list(None, None, ascending, limit)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     assert kwargs["ScanIndexForward"] == ascending
@@ -591,13 +612,13 @@ def test_dynamo_repo_list_none_inputs():
     assert expression._values[1]._values[1] == f"{content_type}#"
 
 
-def test_dynamo_repo_list_no_ids():
+async def test_dynamo_repo_list_no_ids():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -622,9 +643,13 @@ def test_dynamo_repo_list_no_ids():
     )
     ascending = random.choice((True, False))
     limit = fake.pyint()
-    actual = repo.list([], [], ascending, limit)
+    actual = [
+        content
+        async for response in repo.list([], [], ascending, limit)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     assert kwargs["ScanIndexForward"] == ascending
@@ -639,13 +664,13 @@ def test_dynamo_repo_list_no_ids():
     assert expression._values[1]._values[1] == f"{content_type}#"
 
 
-def test_dynamo_repo_list_with_filter():
+async def test_dynamo_repo_list_with_filter():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -674,9 +699,13 @@ def test_dynamo_repo_list_with_filter():
     ascending = random.choice((True, False))
     limit = fake.pyint()
     filters = FilterCommand(not_exists={"optional_field"})
-    actual = repo.list(partition_id, content_id, ascending, limit, filters)
+    actual = [
+        content
+        async for response in repo.list(partition_id, content_id, ascending, limit, filters)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     assert kwargs["ScanIndexForward"] == ascending
@@ -696,13 +725,13 @@ def test_dynamo_repo_list_with_filter():
     assert expression._values[1]._values[1] == f"{content_type}#{content_id[0]}"
 
 
-def test_dynamo_repo_list_between():
+async def test_dynamo_repo_list_between():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -729,9 +758,13 @@ def test_dynamo_repo_list_between():
         table=table,
         resource=MagicMock(),
     )
-    actual = repo.list_between(partition_id, content_start, content_end)
+    actual = [
+        content
+        async for response in repo.list_between(partition_id, content_start, content_end)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     expression = kwargs["KeyConditionExpression"]
@@ -750,13 +783,13 @@ def test_dynamo_repo_list_between():
     assert expression._values[1]._values[2] == f"{content_type}#{content_end[0]}#{content_end[1]}"
 
 
-def test_dynamo_repo_list_between_none_inputs():
+async def test_dynamo_repo_list_between_none_inputs():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -779,9 +812,13 @@ def test_dynamo_repo_list_between_none_inputs():
         table=table,
         resource=MagicMock(),
     )
-    actual = repo.list_between(None, None, None)
+    actual = [
+        content
+        async for response in repo.list_between(None, None, None)
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     expression = kwargs["KeyConditionExpression"]
@@ -794,13 +831,13 @@ def test_dynamo_repo_list_between_none_inputs():
     assert expression._values[1]._values[1] == f"{content_type}#"
 
 
-def test_dynamo_repo_list_between_with_filter():
+async def test_dynamo_repo_list_between_with_filter():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     contents = ExamplePartitionedContentFactory.build_batch(3)
     table.query.return_value = {
         "Items": [
@@ -830,9 +867,15 @@ def test_dynamo_repo_list_between_with_filter():
     ascending = random.choice((True, False))
     limit = fake.pyint()
     filters = FilterCommand(not_exists={"optional_field"})
-    actual = repo.list_between(partition_id, content_start, content_end, ascending, limit, filters)
+    actual = [
+        content
+        async for response in repo.list_between(
+            partition_id, content_start, content_end, ascending, limit, filters
+        )
+        for content in response.contents
+    ]
 
-    assert sorted(actual.contents) == sorted(contents)
+    assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
     assert kwargs["ScanIndexForward"] == ascending
@@ -854,7 +897,7 @@ def test_dynamo_repo_list_between_with_filter():
 
 
 @patch("pydantic_dynamo.v2.repository.build_update_args_for_command")
-def test_dynamo_repo_update(build_update_args):
+async def test_dynamo_repo_update(build_update_args):
     update_args = UpdateItemArgumentsFactory()
     build_update_args.return_value = update_args
     partition = fake.bothify()
@@ -862,7 +905,7 @@ def test_dynamo_repo_update(build_update_args):
     content_type = fake.bothify()
     partition_key = fake.bs()
     sort_key = fake.bs()
-    table = MagicMock()
+    table = AsyncMock()
     repo = DynamoRepository[ComposedFieldModel](
         item_class=ComposedFieldModel,
         partition_prefix=partition,
@@ -886,7 +929,7 @@ def test_dynamo_repo_update(build_update_args):
         current_version=current_version,
     )
 
-    repo.update(partition_id, content_id, command)
+    await repo.update(partition_id, content_id, command)
 
     update_a, update_k = table.update_item.call_args
 
@@ -902,7 +945,7 @@ def test_dynamo_repo_update(build_update_args):
     assert len(update_k) == 0
 
 
-def test_dynamo_repo_delete():
+async def test_dynamo_repo_delete():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -916,9 +959,11 @@ def test_dynamo_repo_delete():
         )
         for c in contents
     ]
-    table.query.return_value = {"Items": items, "Count": fake.pyint()}
-    writer = MagicMock()
-    table.batch_writer.return_value.__enter__.return_value = writer
+    f = asyncio.Future()
+    f.set_result({"Items": items, "Count": fake.pyint()})
+    table.query.return_value = f
+    writer = AsyncMock()
+    table.batch_writer.return_value.__aenter__.return_value = writer
 
     partition_id = [fake.bs(), fake.bs()]
     content_id = [fake.bs(), fake.bs()]
@@ -934,7 +979,7 @@ def test_dynamo_repo_delete():
         table=table,
         resource=MagicMock(),
     )
-    repo.delete(partition_id, content_id)
+    await repo.delete(partition_id, content_id)
 
     args, kwargs = table.query.call_args
     expression = kwargs["KeyConditionExpression"]
@@ -962,7 +1007,7 @@ def test_dynamo_repo_delete():
     ]
 
 
-def test_dynamo_repo_delete_none_inputs():
+async def test_dynamo_repo_delete_none_inputs():
     partition_prefix = fake.bs()
     partition_name = fake.bs()
     content_type = fake.bs()
@@ -976,9 +1021,11 @@ def test_dynamo_repo_delete_none_inputs():
         )
         for c in contents
     ]
-    table.query.return_value = {"Items": items, "Count": fake.pyint()}
-    writer = MagicMock()
-    table.batch_writer.return_value.__enter__.return_value = writer
+    f = asyncio.Future()
+    f.set_result({"Items": items, "Count": fake.pyint()})
+    table.query.return_value = f
+    writer = AsyncMock()
+    table.batch_writer.return_value.__aenter__.return_value = writer
 
     repo = DynamoRepository[Example](
         item_class=FieldModel,
@@ -991,7 +1038,7 @@ def test_dynamo_repo_delete_none_inputs():
         table=table,
         resource=MagicMock(),
     )
-    repo.delete(None, None)
+    await repo.delete(None, None)
 
     args, kwargs = table.query.call_args
     expression = kwargs["KeyConditionExpression"]
