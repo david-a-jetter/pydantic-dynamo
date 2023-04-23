@@ -55,7 +55,7 @@ async def local_db_resource(local_db):
 @pytest_asyncio.fixture
 async def v2_example_repo(local_db_resource):
     resource, table_name = local_db_resource
-    return DynamoRepository[Example](
+    yield DynamoRepository[Example](
         item_class=Example,
         partition_prefix="test",
         partition_name="integration",
@@ -70,4 +70,4 @@ async def v2_example_repo(local_db_resource):
 
 @pytest.fixture
 def sync_v2_example_repo(v2_example_repo):
-    return SyncDynamoRepository[Example](async_repo=v2_example_repo)
+    yield SyncDynamoRepository[Example](async_repo=v2_example_repo)

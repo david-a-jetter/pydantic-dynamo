@@ -1,5 +1,14 @@
-from abc import abstractmethod, ABC
-from typing import Generic, Optional, Iterable, Sequence, Tuple, AsyncIterable
+from abc import abstractmethod
+from contextlib import AbstractContextManager, AbstractAsyncContextManager
+from typing import (
+    Generic,
+    Optional,
+    Iterable,
+    Sequence,
+    Tuple,
+    AsyncIterator,
+    Iterator,
+)
 
 from pydantic.generics import GenericModel
 
@@ -14,7 +23,7 @@ class BatchResponse(GenericModel, Generic[ObjT]):
     contents: Iterable[PartitionedContent[ObjT]]
 
 
-class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
+class ReadOnlyAbstractRepository(AbstractAsyncContextManager, Generic[ObjT]):
     @abstractmethod
     async def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
@@ -25,7 +34,7 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> AsyncIterable[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse]:
         pass
 
     @abstractmethod
@@ -36,7 +45,7 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterable[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse]:
         pass
 
     @abstractmethod
@@ -48,11 +57,11 @@ class ReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterable[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse]:
         pass
 
 
-class AbstractRepository(ReadOnlyAbstractRepository[ObjT], ABC):
+class AbstractRepository(ReadOnlyAbstractRepository[ObjT]):
     @abstractmethod
     async def put(self, content: PartitionedContent[ObjT]) -> None:
         pass
@@ -80,7 +89,7 @@ class AbstractRepository(ReadOnlyAbstractRepository[ObjT], ABC):
         pass
 
 
-class SyncReadOnlyAbstractRepository(ABC, Generic[ObjT]):
+class SyncReadOnlyAbstractRepository(AbstractContextManager, Generic[ObjT]):
     @abstractmethod
     def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
@@ -91,7 +100,7 @@ class SyncReadOnlyAbstractRepository(ABC, Generic[ObjT]):
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> Iterable[BatchResponse]:
+    ) -> Iterator[BatchResponse]:
         pass
 
     @abstractmethod
@@ -102,7 +111,7 @@ class SyncReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterable[BatchResponse]:
+    ) -> Iterator[BatchResponse]:
         pass
 
     @abstractmethod
@@ -114,11 +123,11 @@ class SyncReadOnlyAbstractRepository(ABC, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterable[BatchResponse]:
+    ) -> Iterator[BatchResponse]:
         pass
 
 
-class SyncAbstractRepository(SyncReadOnlyAbstractRepository[ObjT], ABC):
+class SyncAbstractRepository(SyncReadOnlyAbstractRepository[ObjT]):
     @abstractmethod
     def put(self, content: PartitionedContent[ObjT]) -> None:
         pass

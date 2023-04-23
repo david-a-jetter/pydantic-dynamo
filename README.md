@@ -21,7 +21,9 @@ poetry add pydantic-dynamo
 
 ## Usage
 
-The ideal consumer a developer of a low-to-medium complexity application. You will lose
+All of the goodness of pydantic data modeling, pointed at your DynamoDB table instead of your REST API.
+
+The ideal consumer is a developer of a low-to-medium complexity application. You will lose
 some benefits of the single-table pattern, specifically the ability to query
 and retrieve objects of different types in a single connection. Except the most complex single-table examples, 
 access patterns can be implemented to utilize the `list`/`list_between`

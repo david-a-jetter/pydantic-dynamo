@@ -1,6 +1,6 @@
 import asyncio
 from asyncio import AbstractEventLoop
-from typing import Optional, Sequence, Iterable, Tuple, AsyncIterable, TypeVar
+from typing import Optional, Sequence, Iterable, Tuple, AsyncIterable, TypeVar, Iterator
 
 from pydantic_dynamo.models import ObjT, FilterCommand, UpdateCommand, PartitionedContent
 from pydantic_dynamo.v2.models import (
@@ -17,6 +17,9 @@ Output = TypeVar("Output")
 class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
     def __init__(self, async_repo: AbstractRepository[ObjT]):
         self._async_repo = async_repo
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
     def put(self, content: PartitionedContent[ObjT]) -> None:
         loop = asyncio.get_event_loop()
@@ -52,7 +55,7 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
 
     def get_batch(
         self, request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]]
-    ) -> Iterable[BatchResponse]:
+    ) -> Iterator[BatchResponse]:
         loop = asyncio.get_event_loop()
         return iter_over_async(self._async_repo.get_batch(request_ids), loop)
 
@@ -63,7 +66,7 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterable[BatchResponse]:
+    ) -> Iterator[BatchResponse]:
         loop = asyncio.get_event_loop()
         return iter_over_async(
             self._async_repo.list(partition_id, content_prefix, sort_ascending, limit, filters),
@@ -78,7 +81,7 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterable[BatchResponse]:
+    ) -> Iterator[BatchResponse]:
         loop = asyncio.get_event_loop()
         return iter_over_async(
             self._async_repo.list_between(
@@ -90,7 +93,7 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
 
 def iter_over_async(
     async_iterable: AsyncIterable[Output], loop: AbstractEventLoop
-) -> Iterable[Output]:
+) -> Iterator[Output]:
     async_iterator = async_iterable.__aiter__()
 
     async def get_next():

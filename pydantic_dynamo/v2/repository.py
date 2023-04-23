@@ -2,7 +2,19 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Type, Dict, List, Any, Iterable, Union, Optional, Sequence, Tuple, AsyncIterable
+from typing import (
+    Type,
+    Dict,
+    List,
+    Any,
+    Iterable,
+    Union,
+    Optional,
+    Sequence,
+    Tuple,
+    AsyncGenerator,
+    AsyncIterator,
+)
 
 from boto3.dynamodb.conditions import Key
 
@@ -73,6 +85,9 @@ class DynamoRepository(AbstractRepository[ObjT]):
         self._sort_key = sort_key
         self._table = table
         self._resource = resource
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
 
     @property
     def context(self) -> Dict[str, str]:
@@ -165,7 +180,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
     async def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> AsyncIterable[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse]:
         batch_number = 0
         for request_id_batch in chunks(request_ids, size=100):
             batch_number += 1
@@ -217,7 +232,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterable[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse]:
         if partition_id is None:
             partition_id = EMPTY_LIST
         if content_prefix is None:
@@ -242,7 +257,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterable[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse]:
         log_context = {
             "partition_id": partition_id,
             "content_start": content_start,
@@ -358,7 +373,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
         select_fields: Optional[Sequence[str]] = None,
-    ) -> AsyncIterable[List[Dict]]:
+    ) -> AsyncGenerator[List[Dict], None]:
         query_kwargs = {
             "KeyConditionExpression": key_condition_expression,
             "ScanIndexForward": sort_ascending,

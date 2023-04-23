@@ -21,6 +21,27 @@ from pydantic_dynamo.v2.models import GetResponse
 fake = Faker()
 
 
+async def test_context_manager():
+    partition = fake.bs()
+    content_type = fake.bs()
+    partition_type = fake.bs()
+    partition_key = fake.bs()
+    sort_key = fake.bs()
+    table = AsyncMock()
+    async with DynamoRepository[Example](
+        item_class=Example,
+        partition_prefix=partition,
+        partition_name=partition_type,
+        content_type=content_type,
+        table_name=fake.bs(),
+        partition_key=partition_key,
+        sort_key=sort_key,
+        table=table,
+        resource=MagicMock(),
+    ) as repo:
+        assert isinstance(repo, DynamoRepository)
+
+
 @patch("pydantic_dynamo.v2.repository.internal_timestamp")
 async def test_dynamo_repo_put(internal_timestamp):
     now = datetime.now(tz=timezone.utc)
