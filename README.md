@@ -110,6 +110,32 @@ async with session.resource(**boto3_kwargs) as resource:
     )
 ```
 
+The repository class also implements `AsyncContextManager` so it can be readily used in `async with...` statements.
+This may make it easier to properly manage other object dependencies in factory/builder functions.
+```python
+from contextlib import asynccontextmanager
+from aioboto3 import Session
+from pydantic_dynamo.v2.repository import DynamoRepository
+from tests.models import Example  # Use your record model instead
+
+@asynccontextmanager
+async def build_repo() -> DynamoRepository[Example]:
+    session = Session()
+    boto3_kwargs = {"service_name": "dynamodb"}  # endpoint_url, region_name, etc.
+    async with session.resource(**boto3_kwargs) as resource, DynamoRepository[Example](
+        item_class=Example,
+        partition_prefix="test",
+        partition_name="integration",
+        content_type="example",
+        table_name="table_name",
+        partition_key="PARTITION_KEY",
+        sort_key="SORT_KEY",
+        table=await resource.Table("table_name"),
+        resource=resource,
+    ) as repo:
+        yield repo
+```
+
 There is also a synchronous variant that can be used if you don't want to work with async/await and async generators
 in your business code. Most of the subsequent documentation is focused on the async variant.
 
