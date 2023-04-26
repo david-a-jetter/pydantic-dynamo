@@ -133,6 +133,7 @@ async def build_repo() -> DynamoRepository[Example]:
         sort_key="SORT_KEY",
         table=await resource.Table("table_name"),
         resource=resource,
+        consistent_reads=False,  # default
     ) as repo:
         yield repo
 ```
@@ -159,6 +160,7 @@ async with session.resource(**boto3_kwargs) as resource:
         sort_key="SORT_KEY",
         table=await resource.Table("table_name"),
         resource=resource,
+        consistent_reads=False,  # default
     )
 
     sync_repo = SyncDynamoRepository[Example](async_repo=repo)
