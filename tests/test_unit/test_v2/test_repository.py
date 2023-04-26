@@ -179,6 +179,7 @@ async def test_dynamo_repo_get():
         sort_key=sort_key,
         table=table,
         resource=MagicMock(),
+        consistent_reads=True,
     )
     actual = await repo.get(partition_id, content_id)
 
@@ -189,7 +190,8 @@ async def test_dynamo_repo_get():
             "Key": {
                 partition_key: f"{partition_prefix}#{partition_name}#{partition_id[0]}",
                 sort_key: f"{content_type}#{content_id[0]}#{content_id[1]}",
-            }
+            },
+            "ConsistentRead": True,
         },
     )
 
@@ -228,7 +230,8 @@ async def test_dynamo_repo_get_none_inputs():
             "Key": {
                 partition_key: f"{partition_prefix}#{partition_name}#",
                 sort_key: f"{content_type}#",
-            }
+            },
+            "ConsistentRead": False,
         },
     )
 
@@ -322,12 +325,23 @@ async def test_dynamo_repo_get_batch():
                                 sort_key: f"{content_type}#{rid[1][0]}",
                             }
                             for rid in request_ids[:100]
-                        ]
+                        ],
+                        "ConsistentRead": False,
                     }
                 }
             },
         ),
-        ((), {"RequestItems": {table_name: {"Keys": unprocessed}}}),
+        (
+            (),
+            {
+                "RequestItems": {
+                    table_name: {
+                        "Keys": unprocessed,
+                        "ConsistentRead": False,
+                    }
+                }
+            },
+        ),
         (
             (),
             {
@@ -339,7 +353,8 @@ async def test_dynamo_repo_get_batch():
                                 sort_key: f"{content_type}#{rid[1][0]}",
                             }
                             for rid in request_ids[100:]
-                        ]
+                        ],
+                        "ConsistentRead": False,
                     }
                 }
             },
@@ -390,6 +405,7 @@ async def test_dynamo_repo_list():
     assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
+    assert kwargs["ConsistentRead"] is False
     assert kwargs["ScanIndexForward"] == ascending
     assert kwargs["Limit"] == limit
     expression = kwargs["KeyConditionExpression"]
@@ -609,6 +625,7 @@ async def test_dynamo_repo_list_none_inputs():
         sort_key=sort_key,
         table=table,
         resource=MagicMock(),
+        consistent_reads=True,
     )
     ascending = random.choice((True, False))
     limit = fake.pyint()
@@ -621,6 +638,7 @@ async def test_dynamo_repo_list_none_inputs():
     assert sorted(actual) == sorted(contents)
 
     args, kwargs = table.query.call_args
+    assert kwargs["ConsistentRead"] is True
     assert kwargs["ScanIndexForward"] == ascending
     assert kwargs["Limit"] == limit
     expression = kwargs["KeyConditionExpression"]

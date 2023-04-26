@@ -107,6 +107,7 @@ async with session.resource(**boto3_kwargs) as resource:
         sort_key="SORT_KEY",
         table=await resource.Table("table_name"),
         resource=resource,
+        consistent_reads=False,  # default
     )
 ```
 
@@ -162,6 +163,14 @@ async with session.resource(**boto3_kwargs) as resource:
 
     sync_repo = SyncDynamoRepository[Example](async_repo=repo)
 ```
+
+#### Consistent Reads
+By default, both boto3 and this library use eventually consistent read operations.
+You can configure a repository instance to use strongly consistent reads by passing the
+`consistent_reads` kwarg as `True` during instantiation.
+
+You can [read more about read consistency in AWS's documentation.](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html)
+
 ### Saving Data
 
 Data is saved using an instance of the generic `PartitionedContent[ObjT]` class found in 
