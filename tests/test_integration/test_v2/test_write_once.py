@@ -33,3 +33,30 @@ async def test_write_once_repo(v2_example_repo: DynamoRepository[Example]):
     written_again = await repo.write(data)
 
     assert len(written_again) == 0
+
+
+async def test_write_once_repo_one_item(v2_example_repo: DynamoRepository[Example]):
+    repo = WriteOnceRepository[Example](async_repo=v2_example_repo)
+    partition_ids = [[fake.bothify(), fake.bothify()] for _ in range(1)]
+    content_ids = [["A"]]
+    data = [
+        ExamplePartitionedContentFactory(partition_ids=p, content_ids=c)
+        for p in partition_ids
+        for c in content_ids
+    ]
+
+    written = await repo.write(data)
+
+    actual = [
+        c
+        for partition_id in partition_ids
+        async for response in v2_example_repo.list(partition_id, None)
+        for c in response.contents
+    ]
+
+    assert sorted(actual) == sorted(data)
+    assert sorted(actual) == sorted(written)
+
+    written_again = await repo.write(data)
+
+    assert len(written_again) == 0
