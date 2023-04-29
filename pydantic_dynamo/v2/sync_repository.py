@@ -49,13 +49,13 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
 
     def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
-    ) -> GetResponse:
+    ) -> GetResponse[ObjT]:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(self._async_repo.get(partition_id, content_id))
 
     def get_batch(
         self, request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]]
-    ) -> Iterator[BatchResponse]:
+    ) -> Iterator[BatchResponse[ObjT]]:
         loop = asyncio.get_event_loop()
         return iter_over_async(self._async_repo.get_batch(request_ids), loop)
 
@@ -66,7 +66,7 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[BatchResponse]:
+    ) -> Iterator[BatchResponse[ObjT]]:
         loop = asyncio.get_event_loop()
         return iter_over_async(
             self._async_repo.list(partition_id, content_prefix, sort_ascending, limit, filters),
@@ -81,7 +81,7 @@ class SyncDynamoRepository(SyncAbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[BatchResponse]:
+    ) -> Iterator[BatchResponse[ObjT]]:
         loop = asyncio.get_event_loop()
         return iter_over_async(
             self._async_repo.list_between(

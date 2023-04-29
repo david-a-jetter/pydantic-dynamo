@@ -155,7 +155,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
 
     async def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
-    ) -> GetResponse:
+    ) -> GetResponse[ObjT]:
         if partition_id is None:
             partition_id = EMPTY_LIST
         if content_id is None:
@@ -185,7 +185,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
     async def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> AsyncIterator[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse[ObjT]]:
         batch_number = 0
         for request_id_batch in chunks(request_ids, size=100):
             batch_number += 1
@@ -244,7 +244,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterator[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse[ObjT]]:
         if partition_id is None:
             partition_id = EMPTY_LIST
         if content_prefix is None:
@@ -269,7 +269,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterator[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse[ObjT]]:
         log_context = {
             "partition_id": partition_id,
             "content_start": content_start,

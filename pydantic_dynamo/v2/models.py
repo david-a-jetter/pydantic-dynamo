@@ -27,14 +27,14 @@ class ReadOnlyAbstractRepository(AbstractAsyncContextManager, Generic[ObjT]):
     @abstractmethod
     async def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
-    ) -> GetResponse:
+    ) -> GetResponse[ObjT]:
         pass
 
     @abstractmethod
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> AsyncIterator[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse[ObjT]]:
         pass
 
     @abstractmethod
@@ -45,7 +45,7 @@ class ReadOnlyAbstractRepository(AbstractAsyncContextManager, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterator[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse[ObjT]]:
         pass
 
     @abstractmethod
@@ -57,7 +57,7 @@ class ReadOnlyAbstractRepository(AbstractAsyncContextManager, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> AsyncIterator[BatchResponse]:
+    ) -> AsyncIterator[BatchResponse[ObjT]]:
         pass
 
 
@@ -93,14 +93,14 @@ class SyncReadOnlyAbstractRepository(AbstractContextManager, Generic[ObjT]):
     @abstractmethod
     def get(
         self, partition_id: Optional[Sequence[str]], content_id: Optional[Sequence[str]]
-    ) -> GetResponse:
+    ) -> GetResponse[ObjT]:
         pass
 
     @abstractmethod
     def get_batch(
         self,
         request_ids: Sequence[Tuple[Optional[Sequence[str]], Optional[Sequence[str]]]],
-    ) -> Iterator[BatchResponse]:
+    ) -> Iterator[BatchResponse[ObjT]]:
         pass
 
     @abstractmethod
@@ -111,7 +111,7 @@ class SyncReadOnlyAbstractRepository(AbstractContextManager, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[BatchResponse]:
+    ) -> Iterator[BatchResponse[ObjT]]:
         pass
 
     @abstractmethod
@@ -123,7 +123,7 @@ class SyncReadOnlyAbstractRepository(AbstractContextManager, Generic[ObjT]):
         sort_ascending: bool = True,
         limit: Optional[int] = None,
         filters: Optional[FilterCommand] = None,
-    ) -> Iterator[BatchResponse]:
+    ) -> Iterator[BatchResponse[ObjT]]:
         pass
 
 
