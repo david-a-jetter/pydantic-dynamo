@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydantic-dynamo"
-version = "0.2.1"
+version = "0.2.2"
 description = ""
 authors = ["David Jetter <davidajetter@gmail.com>"]
 readme = "README.md"
@@ -25,6 +25,7 @@ mypy = "^1.1.1"
 flake8 = "^6.0.0"
 testcontainers = "^3.7.1"
 tzdata = "^2023.3"
+pytest-asyncio = "^0.21.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -35,6 +36,10 @@ line-length = 100
 
 #[tool.coverage.run]
 #source = ["pydantic_dynamo"]
+
+
+[tool.pytest]
+asyncio_mode = "auto"
 
 [tool.mypy]
 python_version = 3.9

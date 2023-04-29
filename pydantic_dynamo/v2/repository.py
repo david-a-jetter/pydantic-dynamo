@@ -54,6 +54,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         sort_key: str,
         table,
         resource,
+        consistent_reads: bool = False,
     ):
         """
 
@@ -74,6 +75,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
             from `await resource.Table(table_name)`
         :param resource: instance of the resource service object
             from `async with aioboto3.session.Session().resource(**kwargs)`
+        :param consistent_reads: boolean to determine if read operations should be performed
+            with strong consistency. Default is False and uses eventual consistency
         """
         self._item_class = item_class
         self._item_schema = self._item_class.schema()
@@ -85,6 +88,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         self._sort_key = sort_key
         self._table = table
         self._resource = resource
+        self._consistent_reads = consistent_reads
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -166,7 +170,8 @@ class DynamoRepository(AbstractRepository[ObjT]):
             Key={
                 self._partition_key: self._partition_id(partition_id),
                 self._sort_key: self._content_id(content_id),
-            }
+            },
+            ConsistentRead=self._consistent_reads,
         )
         db_item = response.get("Item")
         if db_item:
@@ -199,7 +204,9 @@ class DynamoRepository(AbstractRepository[ObjT]):
                 for partition_id, content_id in request_id_batch
             ]
             batch_response = await self._resource.batch_get_item(
-                RequestItems={self._table_name: {"Keys": batch_keys}}
+                RequestItems={
+                    self._table_name: {"Keys": batch_keys, "ConsistentRead": self._consistent_reads}
+                }
             )
             yield BatchResponse(
                 contents=(
@@ -216,7 +223,12 @@ class DynamoRepository(AbstractRepository[ObjT]):
                     },
                 )
                 batch_response = await self._resource.batch_get_item(
-                    RequestItems={self._table_name: {"Keys": unprocessed_keys}}
+                    RequestItems={
+                        self._table_name: {
+                            "Keys": unprocessed_keys,
+                            "ConsistentRead": self._consistent_reads,
+                        }
+                    }
                 )
                 yield BatchResponse(
                     contents=(
@@ -377,6 +389,7 @@ class DynamoRepository(AbstractRepository[ObjT]):
         query_kwargs = {
             "KeyConditionExpression": key_condition_expression,
             "ScanIndexForward": sort_ascending,
+            "ConsistentRead": self._consistent_reads,
         }
         if filters:
             validate_filters_for_schema(self._item_schema, filters)
