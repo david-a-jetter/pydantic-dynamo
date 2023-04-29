@@ -1,5 +1,9 @@
 # Versions
 
+# 0.3.0
+* Add `WriteOnceRepository` implementation
+  * A utility that minimizes, but does not guarantee to prevent, writing duplicate data
+
 # 0.2.2
 * Add support for strongly consistent reads by setting the `consistent_reads` optional kwarg in repository constructor
 * Add missing generic argument `ObjT` type annotations to repositories

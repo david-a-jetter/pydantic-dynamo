@@ -456,3 +456,38 @@ items: List[PartitionedContent[[FilmActor]] = [
     for content in response.contents
 ]
 ```
+
+### Write Once Repository
+This utility grew out of a need to minimize duplicate data being saved to the database, because new
+was going to be broadcast to data warehouse for wider analysis. 
+This wrapper around the v2 `DynamoRepository` will return a `List[PartitionedContent[ObjT]]` 
+for all records actually written to the database. The database will be queried, and each item
+will be compared to an existing record, if one exists, using Python equivalency.
+
+Assuming the underlying repository is using strongly consistent reads, this should minimize the
+number of duplicate writes, although there is no statistical evaluation to prove its efficacy.
+
+**A note on costs:**
+
+Cost optimization is not the goal of this feature, but rather achieving a reasonable likelihood of
+saving any given record only once.
+This actually queries the database to compare input data to the existing data. This may cost more
+than just blindly putting the content. However, since write units cost significantly more than read units
+(maybe 4x? the pricing is confusing), if you have a high likelihood of duplicate data being saved, this
+*may* actually be able to save you some money. As with all things MIT licensed... no guarantees :)
+
+```python
+from pydantic_dynamo.v2.write_once import WriteOnceRepository
+
+write_once = WriteOnceRepository[Example](async_repo=repo)
+
+count = 10000
+data = [PartitionedContent(...) for _ in range(count)]
+
+actually_written: List[PartitionedContent[ObjT]] = await write_once.write(data)
+assert len(actually_written) == count
+
+actually_written_again: List[PartitionedContent[ObjT]] = await write_once.write(data)
+assert len(actually_written_again) == 0
+
+```
