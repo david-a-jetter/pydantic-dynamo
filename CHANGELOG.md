@@ -1,5 +1,10 @@
 # Versions
 
+# 0.2.2
+* Add support for strongly consistent reads by setting the `consistent_reads` optional kwarg in repository constructor
+* Add missing generic argument `ObjT` type annotations to repositories
+
+
 # 0.2.1
 * Add implementation to support `AbstractAsyncContextManager` to `DynamoRepository`
   * Supports `async with DynamoRepository(...) as repo:` usage
