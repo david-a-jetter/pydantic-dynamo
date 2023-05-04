@@ -1,4 +1,4 @@
-from typing import AsyncIterable
+from typing import AsyncIterable, List
 from unittest.mock import AsyncMock, MagicMock
 
 from faker import Faker
@@ -192,7 +192,7 @@ async def test_write_once_async_iter_all_existing():
     assert new == []
 
 
-async def _async_content_ids() -> AsyncIterable[str]:
+async def _async_content_ids() -> AsyncIterable[List[str]]:
     yield ["Z"]
     yield ["B"]
     yield ["A"]
