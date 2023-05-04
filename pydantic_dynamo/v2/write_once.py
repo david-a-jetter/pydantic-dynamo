@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Generic, Iterable, List, Dict, Sequence
+from typing import Generic, Iterable, List, Dict, Sequence, AsyncIterable, Union
 
 from pydantic_dynamo.models import ObjT, PartitionedContent
 from pydantic_dynamo.v2.models import AbstractRepository
@@ -14,7 +14,9 @@ class WriteOnceRepository(Generic[ObjT]):
 
     async def write(
         self,
-        input_contents: Iterable[PartitionedContent[ObjT]],
+        input_contents: Union[
+            Iterable[PartitionedContent[ObjT]], AsyncIterable[PartitionedContent[ObjT]]
+        ],
     ) -> List[PartitionedContent[ObjT]]:
         """
         :param input_contents: contents to write if, they do not exist
@@ -22,8 +24,12 @@ class WriteOnceRepository(Generic[ObjT]):
         :return: list of contents actually written after checking existing data
         """
         partitioned_lists: Dict[Sequence[str], List[PartitionedContent[ObjT]]] = defaultdict(list)
-        for input_content in input_contents:
-            partitioned_lists[tuple(input_content.partition_ids)].append(input_content)
+        if isinstance(input_contents, AsyncIterable):
+            async for input_content in input_contents:
+                partitioned_lists[tuple(input_content.partition_ids)].append(input_content)
+        else:
+            for input_content in input_contents:
+                partitioned_lists[tuple(input_content.partition_ids)].append(input_content)
 
         if len(partitioned_lists) == 0:
             logger.info("Empty input content to save")

@@ -1,5 +1,8 @@
 # Versions
 
+# 0.3.1
+* Add ability to send `AsyncIterable` input_content to `WriteOnceRepository.write` method
+
 # 0.3.0
 * Add `WriteOnceRepository` implementation
   * A utility that minimizes, but does not guarantee to prevent, writing duplicate data
