@@ -1,5 +1,9 @@
 # Versions
 
+# 0.3.2
+* Fix bug where v2 repository would raise KeyError when reading items saved without 
+an `_object_version` attribute. Expected behavior is to use default version of `1`.
+
 # 0.3.1
 * Add ability to send `AsyncIterable` input_content to `WriteOnceRepository.write` method
 

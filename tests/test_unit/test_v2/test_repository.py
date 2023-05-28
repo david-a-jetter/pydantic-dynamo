@@ -196,6 +196,50 @@ async def test_dynamo_repo_get():
     )
 
 
+async def test_dynamo_repo_get_no_object_version():
+    partition_prefix = fake.bs()
+    partition_name = fake.bs()
+    content_type = fake.bs()
+    table = AsyncMock()
+
+    partition_id = [fake.bs()]
+    content_id = [fake.bs(), fake.bs()]
+    partition_key = fake.bs()
+    sort_key = fake.bs()
+    content = ExamplePartitionedContentFactory(item__object_version=1)
+    response_item = example_content_to_db_item(
+        partition_key, partition_prefix, partition_name, sort_key, content_type, content
+    )
+    response_item.pop("_object_version")
+    table.get_item.return_value = {"Item": response_item}
+
+    repo = DynamoRepository[Example](
+        item_class=Example,
+        partition_prefix=partition_prefix,
+        partition_name=partition_name,
+        content_type=content_type,
+        table_name=fake.bs(),
+        partition_key=partition_key,
+        sort_key=sort_key,
+        table=table,
+        resource=MagicMock(),
+        consistent_reads=True,
+    )
+    actual = await repo.get(partition_id, content_id)
+
+    assert actual == GetResponse(content=content)
+    assert table.get_item.call_args == (
+        (),
+        {
+            "Key": {
+                partition_key: f"{partition_prefix}#{partition_name}#{partition_id[0]}",
+                sort_key: f"{content_type}#{content_id[0]}#{content_id[1]}",
+            },
+            "ConsistentRead": True,
+        },
+    )
+
+
 async def test_dynamo_repo_get_none_inputs():
     partition_prefix = fake.bs()
     partition_name = fake.bs()

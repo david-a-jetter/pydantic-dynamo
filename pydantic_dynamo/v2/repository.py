@@ -317,17 +317,20 @@ class DynamoRepository(AbstractRepository[ObjT]):
         expiry: Optional[datetime] = None
         if db_expiry := db_item.pop(INTERNAL_TTL, None):
             expiry = datetime.fromtimestamp(int(db_expiry), tz=timezone.utc)
-        return PartitionedContent[self._item_class](  # type: ignore[name-defined]
-            partition_ids=db_item.pop(self._partition_key)
+
+        item_kwargs = {
+            "partition_ids": db_item.pop(self._partition_key)
             .replace(self._partition_id(EMPTY_LIST), "", 1)
             .split("#"),
-            content_ids=db_item.pop(self._sort_key)
+            "content_ids": db_item.pop(self._sort_key)
             .replace(self._content_id(EMPTY_LIST), "", 1)
             .split("#"),
-            item=self._item_class(**db_item),
-            current_version=db_item.pop(INTERNAL_OBJECT_VERSION),
-            expiry=expiry,
-        )
+            "item": self._item_class(**db_item),
+            "expiry": expiry,
+        }
+        if version := db_item.pop(INTERNAL_OBJECT_VERSION, None):
+            item_kwargs["current_version"] = version
+        return PartitionedContent[self._item_class](**item_kwargs)  # type: ignore[name-defined]
 
     async def delete(
         self,
