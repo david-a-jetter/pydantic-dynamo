@@ -79,6 +79,15 @@ class ExamplePartitionedContentFactory(factory.Factory):
     item = factory.SubFactory(ExampleFactory)
 
 
+class PartitionedContentFactory(factory.Factory):
+    class Meta:
+        model = PartitionedContent
+
+    partition_ids = factory.List([fake.bothify() for _ in range(2)])
+    content_ids = factory.List([fake.bothify() for _ in range(2)])
+    item = factory.LazyFunction(lambda: FieldModel(test_field=fake.bs()))
+
+
 def example_content_to_db_item(
     partition_key: str,
     partition_prefix: str,
