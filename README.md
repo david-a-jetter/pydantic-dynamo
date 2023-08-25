@@ -6,7 +6,7 @@ A Python repository over DynamoDB, leveraging the excellent
 
 ## Contributing
 
-Please see [the contributing guide](./contributing.md).
+Please see [the contributing guide](./CONTRIBUTING.md).
 
 ## Installation
 Install from PyPI:
@@ -269,14 +269,16 @@ await repo.update(
 #### Get Item
 
 Finally, something simple to document. This gets a single item by its partition and content IDs,
-returning `None` if no item is found.
+returning a `GetResponse[FilmActor]` with a `content` value of `None` if no item is found.
 
 This example would retrieve just the first actor item.
 ```python
 from typing import Optional
 from pydantic_dynamo.models import PartitionedContent
+from pydantic_dynamo.v2.models import GetResponse
 
-item: Optional[PartitionedContent[FilmActor]] = await repo.get(partition_id=None, content_id=[id1])
+response: GetResponse = await repo.get(partition_id=None, content_id=[id1])
+item: Optional[PartitionedContent[FilmActor]] = response.content
 ```
 
 #### Reading Multiple Items
