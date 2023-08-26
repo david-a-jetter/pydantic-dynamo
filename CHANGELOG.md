@@ -1,5 +1,8 @@
 # Versions
 
+## 0.4.1 + 0.4.2
+* Loosen the dependency ranges by requiring only `aioboto3`
+
 ## 0.4.0
 * Add `AIter`, `list_contents_from_batches`, and `list_items_from_batches` convenience functions
 in the `pydantic_dynamo.v2.utils` module to reduce consumer boilerplate
